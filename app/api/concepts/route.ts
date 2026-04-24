@@ -37,6 +37,23 @@ export async function POST(req: NextRequest) {
 
   try {
     const wiki = await fetchWikiConcept(url);
+
+    // Reject orphans: the new concept must share at least one edge with the glossary
+    const existing = getConcepts();
+    if (existing.length > 0) {
+      const glossaryTitles = new Set(existing.map((c) => c.title.toLowerCase()));
+      const hasOutgoing = wiki.relatedTitles.some((t) => glossaryTitles.has(t.toLowerCase()));
+      const hasIncoming = existing.some((c) =>
+        c.relatedTitles.some((t) => t.toLowerCase() === wiki.title.toLowerCase())
+      );
+      if (!hasOutgoing && !hasIncoming) {
+        return NextResponse.json(
+          { error: "Ce concept n'a aucune connexion avec votre glossaire. Ajoutez d'abord des concepts liés." },
+          { status: 422 }
+        );
+      }
+    }
+
     const { concept, created } = addConcept({
       id: randomUUID(),
       title: wiki.title,

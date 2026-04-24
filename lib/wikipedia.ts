@@ -79,6 +79,7 @@ function isConceptLink(title: string): boolean {
 
 async function fetchRelatedTitles(lang: string, title: string): Promise<string[]> {
   const links: string[] = [];
+  const titleLower = title.toLowerCase();
   let plcontinue: string | undefined;
 
   do {
@@ -102,7 +103,9 @@ async function fetchRelatedTitles(lang: string, title: string): Promise<string[]
     const data = await res.json();
     const pages = Object.values(data.query?.pages || {}) as any[];
     const batch: string[] = pages[0]?.links?.map((l: any) => l.title) ?? [];
-    links.push(...batch.filter(isConceptLink));
+    links.push(
+      ...batch.filter((t) => isConceptLink(t) && t.toLowerCase() !== titleLower)
+    );
     plcontinue = data.continue?.plcontinue;
   } while (plcontinue);
 
