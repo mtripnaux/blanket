@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { getConcepts } from "@/lib/store";
+import ConceptCount from "@/components/ConceptCount";
 
 export const metadata: Metadata = {
   title: "Blanket — Glossary",
@@ -8,7 +8,6 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const count = getConcepts().length;
   return (
     <html lang="en">
       <body className="min-h-screen bg-white text-zinc-900 font-sans">
@@ -18,11 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="text-xl font-semibold tracking-tight">blanket</span>
               <span className="text-zinc-400 text-sm font-normal mt-0.5">glossary</span>
             </a>
-            {count > 0 && (
-              <span className="text-sm tabular-nums text-zinc-400">
-                {count} concept{count !== 1 ? "s" : ""}
-              </span>
-            )}
+            <ConceptCount />
           </header>
           <main>{children}</main>
         </div>

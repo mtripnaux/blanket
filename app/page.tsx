@@ -6,6 +6,7 @@ import { Search, Plus, ArrowRight, Loader2, BookOpen, Sparkles } from "lucide-re
 import ConceptGraph from "@/components/ConceptGraph";
 import { cn } from "@/lib/utils";
 import type { Concept } from "@/lib/store";
+import { notifyConceptsChanged } from "@/components/ConceptCount";
 
 type Suggestion = { title: string; lang: string; count: number };
 
@@ -31,7 +32,7 @@ function computeSuggestions(concepts: Concept[]): Suggestion[] {
     const j = Math.floor(Math.random() * (i + 1));
     [all[i], all[j]] = [all[j], all[i]];
   }
-  return all.sort((a, b) => b.count - a.count).slice(0, 10);
+  return all.sort((a, b) => b.count - a.count);
 }
 
 export default function Home() {
@@ -44,9 +45,11 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [frontierLimit, setFrontierLimit] = useState(10);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const suggestions = computeSuggestions(allConcepts);
+  const visibleSuggestions = suggestions.slice(0, frontierLimit);
 
   const fetchConcepts = useCallback(async (q: string) => {
     setLoading(true);
@@ -74,6 +77,10 @@ export default function Home() {
     if (showForm) inputRef.current?.focus();
   }, [showForm]);
 
+  useEffect(() => {
+    if (showForm) setFrontierLimit(10);
+  }, [showForm]);
+
   async function importUrl(wikiUrl: string): Promise<boolean> {
     setError("");
     try {
@@ -91,6 +98,7 @@ export default function Home() {
         setError(data.error || "Unknown error");
         return false;
       }
+      notifyConceptsChanged();
       await fetchConcepts(query);
       return true;
     } catch {
@@ -184,7 +192,7 @@ export default function Home() {
           </div>
 
           {/* Suggestions */}
-          {suggestions.length > 0 && (
+          {visibleSuggestions.length > 0 && (
             <div className="space-y-2 pt-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
@@ -192,7 +200,7 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {suggestions.map((s) => {
+                {visibleSuggestions.map((s) => {
                   const key = `${s.lang}::${s.title}`;
                   const isImporting = importingSlug === key;
                   return (
@@ -222,6 +230,15 @@ export default function Home() {
                   );
                 })}
               </div>
+              {suggestions.length > frontierLimit && (
+                <button
+                  type="button"
+                  onClick={() => setFrontierLimit((value) => value + 10)}
+                  className="text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+                >
+                  load 10 more
+                </button>
+              )}
             </div>
           )}
         </div>
