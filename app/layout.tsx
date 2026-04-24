@@ -3,8 +3,11 @@ import "./globals.css";
 import ConceptCount from "@/components/ConceptCount";
 
 export const metadata: Metadata = {
-  title: "Blanket — Glossary",
-  description: "Build your personal glossary from Wikipedia",
+  title: "Blanket",
+  description: "My personal Markov Blanket from Wikipedia",
+  icons: {
+    icon: '/icon.svg',
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
