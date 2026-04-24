@@ -5,7 +5,8 @@ import { randomUUID } from "crypto";
 
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q") ?? "";
-  let concepts = getConcepts();
+  const exponent = Math.max(0.1, Math.min(1.0, parseFloat(req.nextUrl.searchParams.get("exponent") ?? "0.5")));
+  let concepts = getConcepts(exponent);
   if (q.trim()) {
     const lower = q.toLowerCase();
     concepts = concepts.filter(

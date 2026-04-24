@@ -30,7 +30,7 @@ function write(store: Store): void {
   fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), "utf-8");
 }
 
-function buildFrontierScores(concepts: Concept[]): Map<string, number> {
+function buildFrontierScores(concepts: Concept[], exponent: number): Map<string, number> {
   const glossary = new Set(concepts.map((c) => c.title.toLowerCase()));
 
   const inDegree = new Map<string, number>();
@@ -44,19 +44,17 @@ function buildFrontierScores(concepts: Concept[]): Map<string, number> {
   const scores = new Map<string, number>();
   for (const c of concepts) {
     const total = c.relatedTitles.length;
-    if (total === 0) { scores.set(c.id, 0); continue; }
-    const outLinks = c.relatedTitles.filter(
-      (t) => !glossary.has(t.toLowerCase())
-    ).length;
+    const outLinks = c.relatedTitles.filter((t) => !glossary.has(t.toLowerCase())).length;
     const deg = inDegree.get(c.title.toLowerCase()) ?? 0;
-    scores.set(c.id, (outLinks / total) / Math.log1p(Math.max(1, deg)));
+    const outRatio = total > 0 ? outLinks / total : 0;
+    scores.set(c.id, outRatio * Math.log1p(deg) / Math.pow(deg + 1, exponent));
   }
   return scores;
 }
 
-export function getConcepts(): Concept[] {
+export function getConcepts(exponent = 0.5): Concept[] {
   const concepts = read().concepts;
-  const scores = buildFrontierScores(concepts);
+  const scores = buildFrontierScores(concepts, exponent);
   return concepts.sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0));
 }
 

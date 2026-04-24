@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Search, Plus, ArrowRight, Loader2, BookOpen, Sparkles } from "lucide-react";
+import { Search, Plus, ArrowRight, Loader2, BookOpen } from "lucide-react";
 import ConceptGraph from "@/components/ConceptGraph";
 import { cn } from "@/lib/utils";
 import type { Concept } from "@/lib/store";
-import { notifyConceptsChanged } from "@/components/ConceptCount";
 
 type Suggestion = { title: string; lang: string; count: number };
 
@@ -32,10 +32,13 @@ function computeSuggestions(concepts: Concept[]): Suggestion[] {
     const j = Math.floor(Math.random() * (i + 1));
     [all[i], all[j]] = [all[j], all[i]];
   }
-  return all.sort((a, b) => b.count - a.count);
+  return all.sort((a, b) => b.count - a.count).slice(0, 10);
 }
 
 export default function Home() {
+  const searchParams = useSearchParams();
+  const exponent = Math.max(0.1, Math.min(1.0, parseFloat(searchParams.get("exponent") ?? "0.5")));
+
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [allConcepts, setAllConcepts] = useState<Concept[]>([]);
   const [query, setQuery] = useState("");
@@ -45,29 +48,28 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [frontierLimit, setFrontierLimit] = useState(10);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const suggestions = computeSuggestions(allConcepts);
-  const visibleSuggestions = suggestions.slice(0, frontierLimit);
 
   const fetchConcepts = useCallback(async (q: string) => {
     setLoading(true);
     try {
+      const exp = `&exponent=${exponent}`;
       const [filtered, all] = await Promise.all([
-        fetch(`/api/concepts?q=${encodeURIComponent(q)}`).then((r) => r.json()),
-        q ? fetch("/api/concepts").then((r) => r.json()) : Promise.resolve(null),
+        fetch(`/api/concepts?q=${encodeURIComponent(q)}${exp}`).then((r) => r.json()),
+        q ? fetch(`/api/concepts?${exp}`).then((r) => r.json()) : Promise.resolve(null),
       ]);
       setConcepts(filtered);
-      const newAll = all ?? filtered;
       setAllConcepts((prev) => {
-        if (prev.length === newAll.length && prev.every((c, i) => c.id === newAll[i]?.id)) return prev;
+        const newAll = all ?? filtered;
+        if (prev.length === newAll.length && prev.every((c: Concept, i: number) => c.id === newAll[i]?.id)) return prev;
         return newAll;
       });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [exponent]);
 
   useEffect(() => {
     fetchConcepts(query);
@@ -75,10 +77,6 @@ export default function Home() {
 
   useEffect(() => {
     if (showForm) inputRef.current?.focus();
-  }, [showForm]);
-
-  useEffect(() => {
-    if (showForm) setFrontierLimit(10);
   }, [showForm]);
 
   async function importUrl(wikiUrl: string): Promise<boolean> {
@@ -98,7 +96,6 @@ export default function Home() {
         setError(data.error || "Unknown error");
         return false;
       }
-      notifyConceptsChanged();
       await fetchConcepts(query);
       return true;
     } catch {
@@ -161,7 +158,6 @@ export default function Home() {
       {/* Add form */}
       {showForm && (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-4 animate-fade-in">
-          {/* URL input */}
           <div className="space-y-2">
             <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wide">
               Wikipedia link
@@ -180,27 +176,20 @@ export default function Home() {
                 disabled={adding || !url.trim()}
                 className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {adding ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <ArrowRight className="size-4" />
-                )}
+                {adding ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
                 {adding ? "Loading…" : "Import"}
               </button>
             </form>
             {error && <p className="text-xs text-red-500">{error}</p>}
           </div>
 
-          {/* Suggestions */}
-          {visibleSuggestions.length > 0 && (
+          {suggestions.length > 0 && (
             <div className="space-y-2 pt-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
-                  Blanket Frontier
-                </span>
-              </div>
+              <span className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+                Blanket Frontier
+              </span>
               <div className="flex flex-wrap gap-1.5">
-                {visibleSuggestions.map((s) => {
+                {suggestions.map((s) => {
                   const key = `${s.lang}::${s.title}`;
                   const isImporting = importingSlug === key;
                   return (
@@ -219,26 +208,12 @@ export default function Home() {
                       {isImporting && <Loader2 className="size-3 animate-spin" />}
                       {s.title}
                       {s.count > 1 && (
-                        <span className={cn(
-                          "ml-0.5 text-[10px]",
-                          isImporting ? "text-zinc-400" : "text-zinc-400"
-                        )}>
-                          {s.count}
-                        </span>
+                        <span className="ml-0.5 text-[10px] text-zinc-400">{s.count}</span>
                       )}
                     </button>
                   );
                 })}
               </div>
-              {suggestions.length > frontierLimit && (
-                <button
-                  type="button"
-                  onClick={() => setFrontierLimit((value) => value + 10)}
-                  className="text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
-                >
-                  load 10 more
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -261,9 +236,7 @@ export default function Home() {
             ) : (
               <>
                 <p className="text-sm font-medium text-zinc-500 mb-1">Your glossary is empty</p>
-                <p className="text-xs text-zinc-400">
-                  Add a concept by pasting a Wikipedia link
-                </p>
+                <p className="text-xs text-zinc-400">Add a concept by pasting a Wikipedia link</p>
               </>
             )}
           </div>
@@ -277,9 +250,7 @@ export default function Home() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-zinc-900 text-sm">
-                        {concept.title}
-                      </span>
+                      <span className="font-medium text-zinc-900 text-sm">{concept.title}</span>
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 uppercase tracking-wide">
                         {concept.lang}
                       </span>
@@ -298,7 +269,7 @@ export default function Home() {
 
       {!loading && concepts.length > 0 && (
         <p className="text-xs text-zinc-400 text-center">
-          {concepts.length} concept{concepts.length > 1 ? "s" : ""}
+          {concepts.length} concept{concepts.length !== 1 ? "s" : ""}
           {query ? ` for "${query}"` : ""}
         </p>
       )}
