@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import Fuse from "fuse.js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Loader2, BookOpen } from "lucide-react";
@@ -45,22 +44,37 @@ export default function Home() {
   const fuseRef = useRef<any | null>(null);
   const MAX_RESULTS = 200;
 
-  // Build Fuse index once whenever the corpus changes
+  // Build Fuse index once whenever the corpus changes. Load Fuse dynamically
+  // so the module is only required in the browser (avoids prerender errors).
   useEffect(() => {
     if (!allConcepts || allConcepts.length === 0) {
       fuseRef.current = null;
       return;
     }
-    try {
-      fuseRef.current = new Fuse(allConcepts, {
-        keys: ["title", "definition"],
-        threshold: 0.45,
-        ignoreLocation: true,
-        includeScore: true,
-      });
-    } catch (err) {
-      fuseRef.current = null;
-    }
+    let mounted = true;
+    (async () => {
+      try {
+        if (typeof window === "undefined") {
+          // Do not attempt to import on server
+          fuseRef.current = null;
+          return;
+        }
+        const mod = await import("fuse.js");
+        if (!mounted) return;
+        const F = (mod && (mod as any).default) || mod;
+        fuseRef.current = new (F as any)(allConcepts, {
+          keys: ["title", "definition"],
+          threshold: 0.45,
+          ignoreLocation: true,
+          includeScore: true,
+        });
+      } catch (err) {
+        fuseRef.current = null;
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, [allConcepts]);
 
   useEffect(() => {
