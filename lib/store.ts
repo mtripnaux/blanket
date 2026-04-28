@@ -4,6 +4,7 @@ import path from "path";
 export type Settings = {
   inDegreeWeight: number;
   outDegreeWeight: number;
+  randomRanking: boolean;
 };
 
 export type Concept = {
@@ -27,12 +28,21 @@ function read(): Store {
     const raw = fs.readFileSync(DATA_PATH, "utf-8");
     return JSON.parse(raw);
   } catch {
-      return { concepts: [], settings: { inDegreeWeight: 0, outDegreeWeight: 0 } };
+    return { concepts: [], settings: { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 } };
   }
 }
 
 function write(store: Store): void {
   fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), "utf-8");
+}
+
+function shuffleConcepts(concepts: Concept[]): Concept[] {
+  const shuffled = [...concepts];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }
 
 function smoothNormalize(value: number, max: number): number {
@@ -93,7 +103,10 @@ function buildFrontierScores(
 export function getConcepts(): Concept[] {
   const store = read();
   const concepts = store.concepts;
-  const settings = store.settings ?? { inDegreeWeight: 0, outDegreeWeight: 0 };
+  const settings = store.settings ?? { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 };
+  if (settings.randomRanking) {
+    return shuffleConcepts(concepts);
+  }
   const scores = buildFrontierScores(
     concepts,
     settings.inDegreeWeight,
@@ -104,12 +117,12 @@ export function getConcepts(): Concept[] {
 
 export function getSettings(): Settings {
   const store = read();
-  return store.settings ?? { inDegreeWeight: 0, outDegreeWeight: 0 };
+  return store.settings ?? { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 };
 }
 
 export function updateSettings(nextSettings: Partial<Settings>): Settings {
   const store = read();
-  const current = store.settings ?? { inDegreeWeight: 0, outDegreeWeight: 0 };
+  const current = store.settings ?? { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 };
   const updated: Settings = { ...current, ...nextSettings };
   store.settings = updated;
   write(store);

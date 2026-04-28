@@ -4,6 +4,26 @@ import { getConcepts, getSettings } from "@/lib/store";
 export async function GET() {
   const concepts = getConcepts();
   const settings = getSettings();
+
+  if (settings.randomRanking) {
+    return NextResponse.json({
+      settings,
+      randomRanking: true,
+      topConcepts: concepts.slice(0, 10).map((c) => ({
+        title: c.title,
+        inDeg: 0,
+        outDeg: 0,
+        total: c.relatedTitles.length,
+        outLinks: 0,
+        inDegreeNorm: "0",
+        outDegreeNorm: "0",
+        baseScore: "0",
+        inDegreeBonus: "0",
+        outDegreeBonus: "0",
+        finalScore: "0",
+      })),
+    });
+  }
   
   // Manually rebuild scores with debug info
   const glossary = new Set(concepts.map((c) => c.title.toLowerCase()));

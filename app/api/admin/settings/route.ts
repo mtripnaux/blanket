@@ -10,6 +10,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const updated = updateSettings({
+      randomRanking: body.randomRanking !== undefined ? Boolean(body.randomRanking) : undefined,
       inDegreeWeight: body.inDegreeWeight !== undefined ? parseFloat(body.inDegreeWeight) : undefined,
       outDegreeWeight: body.outDegreeWeight !== undefined ? parseFloat(body.outDegreeWeight) : undefined,
     });

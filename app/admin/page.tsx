@@ -91,7 +91,9 @@ export default function AdminPage() {
 
   // Settings
   const [inDegreeWeight, setInDegreeWeight] = useState(0);
+  const [randomRanking, setRandomRanking] = useState(false);
   const [outDegreeWeight, setOutDegreeWeight] = useState(0);
+  const [randomRankingDraft, setRandomRankingDraft] = useState(false);
   const [inDegreeWeightDraft, setInDegreeWeightDraft] = useState("0");
   const [outDegreeWeightDraft, setOutDegreeWeightDraft] = useState("0");
   const [savingSettings, setSavingSettings] = useState(false);
@@ -124,6 +126,8 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin/settings");
       const data = await res.json();
+      setRandomRanking(Boolean(data.randomRanking ?? false));
+      setRandomRankingDraft(Boolean(data.randomRanking ?? false));
       setInDegreeWeight(data.inDegreeWeight ?? 0);
       setInDegreeWeightDraft((data.inDegreeWeight ?? 0).toString());
       setOutDegreeWeight(data.outDegreeWeight ?? 0);
@@ -293,13 +297,15 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree }),
+        body: JSON.stringify({ randomRanking: randomRankingDraft, inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree }),
       });
       const data = await res.json();
       if (!res.ok) {
         setSettingsError(data.error || "Error saving settings");
         return;
       }
+      setRandomRanking(Boolean(data.randomRanking));
+      setRandomRankingDraft(Boolean(data.randomRanking));
       setInDegreeWeight(data.inDegreeWeight);
       setInDegreeWeightDraft(data.inDegreeWeight.toString());
       setOutDegreeWeight(data.outDegreeWeight);
@@ -927,6 +933,20 @@ export default function AdminPage() {
                 <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
                   Ranking Function
                 </h3>
+                <label className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={randomRankingDraft}
+                    onChange={(e) => setRandomRankingDraft(e.target.checked)}
+                    className="mt-0.5 size-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                  />
+                  <div className="space-y-1">
+                    <span className="block text-sm font-medium text-zinc-900">Random ranking bypass</span>
+                    <span className="block text-xs text-zinc-500">
+                      Ignore the ranking function and show concepts in a random order on the main page.
+                    </span>
+                  </div>
+                </label>
                 <form onSubmit={handleSaveSettings} className="space-y-4">
 
                   <div className="space-y-2">
@@ -941,7 +961,8 @@ export default function AdminPage() {
                         step="0.001"
                         value={inDegreeWeightDraft}
                         onChange={(e) => setInDegreeWeightDraft(e.target.value)}
-                        className="flex-1"
+                        disabled={randomRankingDraft}
+                        className="flex-1 disabled:opacity-40"
                       />
                       <div className="flex items-center gap-2">
                         <input
@@ -949,7 +970,8 @@ export default function AdminPage() {
                           step="0.001"
                           value={inDegreeWeightDraft}
                           onChange={(e) => setInDegreeWeightDraft(e.target.value)}
-                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors"
+                          disabled={randomRankingDraft}
+                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors disabled:opacity-40"
                         />
                       </div>
                     </div>
@@ -967,7 +989,8 @@ export default function AdminPage() {
                         step="0.001"
                         value={outDegreeWeightDraft}
                         onChange={(e) => setOutDegreeWeightDraft(e.target.value)}
-                        className="flex-1"
+                        disabled={randomRankingDraft}
+                        className="flex-1 disabled:opacity-40"
                       />
                       <div className="flex items-center gap-2">
                         <input
@@ -975,7 +998,8 @@ export default function AdminPage() {
                           step="0.001"
                           value={outDegreeWeightDraft}
                           onChange={(e) => setOutDegreeWeightDraft(e.target.value)}
-                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors"
+                          disabled={randomRankingDraft}
+                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors disabled:opacity-40"
                         />
                       </div>
                     </div>

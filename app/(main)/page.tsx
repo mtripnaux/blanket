@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import Fuse from "fuse.js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Loader2, BookOpen } from "lucide-react";
@@ -12,29 +13,96 @@ export default function Home() {
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [allConcepts, setAllConcepts] = useState<Concept[]>([]);
   const [query, setQuery] = useState("");
+  const [queryDraft, setQueryDraft] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const fetchConcepts = useCallback(async (q: string) => {
+  // Initial load: fetch all concepts once and cache locally for fast client-side filtering
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const all = await fetch("/api/concepts").then((r) => r.json());
+        if (!mounted) return;
+        setAllConcepts(all);
+        setConcepts(all);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Debounce user input to avoid work on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(queryDraft), 300);
+    return () => clearTimeout(t);
+  }, [queryDraft]);
+
+  // Filter client-side from cached `allConcepts` when the debounced `query` changes
+  const fuseRef = useRef<any | null>(null);
+  const MAX_RESULTS = 200;
+
+  // Build Fuse index once whenever the corpus changes
+  useEffect(() => {
+    if (!allConcepts || allConcepts.length === 0) {
+      fuseRef.current = null;
+      return;
+    }
+    try {
+      fuseRef.current = new Fuse(allConcepts, {
+        keys: ["title", "definition"],
+        threshold: 0.45,
+        ignoreLocation: true,
+        includeScore: true,
+      });
+    } catch (err) {
+      fuseRef.current = null;
+    }
+  }, [allConcepts]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setConcepts(allConcepts);
+      setLoading(false);
+      return;
+    }
+
+    // Very short queries: do a fast substring search without fuzzy work
+    if (query.length < 2) {
+      const lower = query.toLowerCase();
+      const filtered = allConcepts.filter((c) => c.title.toLowerCase().includes(lower));
+      setConcepts(filtered.slice(0, MAX_RESULTS));
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const [filtered, all] = await Promise.all([
-        fetch(`/api/concepts?q=${encodeURIComponent(q)}`).then((r) => r.json()),
-        q ? fetch("/api/concepts").then((r) => r.json()) : Promise.resolve(null),
-      ]);
-      setConcepts(filtered);
-      const newAll = all ?? filtered;
-      setAllConcepts((prev) => {
-        if (prev.length === newAll.length && prev.every((c, i) => c.id === newAll[i]?.id)) return prev;
-        return newAll;
-      });
+      if (fuseRef.current) {
+        // Use Fuse's limit option to avoid creating huge result arrays
+        const results = fuseRef.current.search(query, { limit: MAX_RESULTS });
+        const mapped = (results as any[]).map((r: any) => r.item as Concept);
+        setConcepts(mapped);
+      } else {
+        const lower = query.toLowerCase();
+        const filtered = allConcepts.filter(
+          (c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower)
+        );
+        setConcepts(filtered.slice(0, MAX_RESULTS));
+      }
+    } catch (err) {
+      const lower = query.toLowerCase();
+      const filtered = allConcepts.filter(
+        (c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower)
+      );
+      setConcepts(filtered.slice(0, MAX_RESULTS));
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    fetchConcepts(query);
-  }, [query, fetchConcepts]);
+  }, [query, allConcepts]);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -45,8 +113,8 @@ export default function Home() {
         <input
           type="search"
           placeholder="Search concepts…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={queryDraft}
+          onChange={(e) => setQueryDraft(e.target.value)}
           className="w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-9 pr-4 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400"
         />
       </div>
