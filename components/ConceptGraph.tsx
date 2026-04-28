@@ -9,7 +9,7 @@ type SEdge = { s: number; t: number };
 
 const LW = 680;
 const LH = 220;
-const MAX_TICKS = 280;
+const MAX_TICKS = 120;
 // Elliptical cluster bounds — wide to match the 3:1 canvas aspect ratio
 const CLUSTER_RX = 155;
 const CLUSTER_RY = 80;
@@ -103,11 +103,9 @@ export default function ConceptGraph({ concepts }: { concepts: Concept[] }) {
         }
 
         for (let i = 0; i < N; i++) {
-          // Gravity toward center — scaled per axis to preserve oval shape
-          fx[i] += (LW / 2 - nodes[i].x) * 0.006;
-          fy[i] += (LH / 2 - nodes[i].y) * 0.012;
+          fx[i] += (LW / 2 - nodes[i].x) * 0.008;
+          fy[i] += (LH / 2 - nodes[i].y) * 0.016;
 
-          // Soft elliptical boundary: pushes nodes back along each axis independently
           const bx = nodes[i].x - LW / 2;
           const by = nodes[i].y - LH / 2;
           const ex = bx / CLUSTER_RX;
@@ -115,21 +113,14 @@ export default function ConceptGraph({ concepts }: { concepts: Concept[] }) {
           const ed = Math.sqrt(ex * ex + ey * ey) || 0.01;
           if (ed > 1) {
             const excess = ed - 1;
-            fx[i] -= (ex / ed) * excess * CLUSTER_RX * 0.22;
-            fy[i] -= (ey / ed) * excess * CLUSTER_RY * 0.22;
+            fx[i] -= (ex / ed) * excess * CLUSTER_RX * 0.5;
+            fy[i] -= (ey / ed) * excess * CLUSTER_RY * 0.5;
           }
 
-          // High damping to quickly absorb kinetic energy
-          nodes[i].vx = (nodes[i].vx + fx[i]) * 0.84;
-          nodes[i].vy = (nodes[i].vy + fy[i]) * 0.84;
-
-          // Hard clamp as safety net — bounce velocity on hit so nodes don't pile at edges
-          const nx = nodes[i].x + nodes[i].vx;
-          const ny = nodes[i].y + nodes[i].vy;
-          if (nx < 2 || nx > LW - 2) nodes[i].vx *= -0.4;
-          if (ny < 2 || ny > LH - 2) nodes[i].vy *= -0.4;
-          nodes[i].x = Math.max(2, Math.min(LW - 2, nodes[i].x + nodes[i].vx));
-          nodes[i].y = Math.max(2, Math.min(LH - 2, nodes[i].y + nodes[i].vy));
+          nodes[i].vx = (nodes[i].vx + fx[i]) * 0.78;
+          nodes[i].vy = (nodes[i].vy + fy[i]) * 0.78;
+          nodes[i].x += nodes[i].vx;
+          nodes[i].y += nodes[i].vy;
         }
         tick++;
       }
@@ -256,8 +247,8 @@ export default function ConceptGraph({ concepts }: { concepts: Concept[] }) {
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: "100%", height: LH }}
-      className="block rounded-xl border border-zinc-100 bg-white"
+      style={{ width: "100%", aspectRatio: `${LW}/${LH}` }}
+      className="block rounded-xl border border-zinc-200 bg-white"
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
       onClick={onClick}

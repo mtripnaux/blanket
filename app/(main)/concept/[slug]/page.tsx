@@ -16,37 +16,35 @@ export default function ConceptPage({ params }: { params: { slug: string } }) {
 
   return (
     <div className="animate-fade-in space-y-10">
-      {/* Back */}
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-700 transition-colors"
-      >
-        <ArrowLeft className="size-3.5" />
-        Glossary
-      </Link>
-
-      {/* Header */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            {concept.title}
-          </h1>
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 uppercase tracking-wide self-center">
-            {concept.lang}
-          </span>
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors"
+          >
+            <ArrowLeft className="size-3" />
+            Glossary
+          </Link>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 uppercase tracking-wide">
+              {concept.lang}
+            </span>
+            <a
+              href={concept.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
+            >
+              Wikipedia
+              <ExternalLink className="size-3" />
+            </a>
+          </div>
         </div>
-        <a
-          href={concept.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
-        >
-          View on Wikipedia
-          <ExternalLink className="size-3" />
-        </a>
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
+          {concept.title}
+        </h1>
       </div>
 
-      {/* Definition */}
       <section className="space-y-2">
         <h2 className="text-xs font-medium uppercase tracking-widest text-zinc-400">
           Definition
@@ -56,7 +54,6 @@ export default function ConceptPage({ params }: { params: { slug: string } }) {
         </p>
       </section>
 
-      {/* Related concepts */}
       {concept.relatedTitles.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-xs font-medium uppercase tracking-widest text-zinc-400">
