@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Plus, Trash2, Loader2, ArrowRight, BookOpen, LogOut,
   Search, X, Check, Upload, Globe, BarChart3, Lock,
-  ArrowUpDown, Hash, Network,
+  ArrowUpDown, Hash, Network, RotateCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Concept } from "@/lib/store";
@@ -87,6 +87,7 @@ export default function AdminPage() {
   const [manageSearch, setManageSearch] = useState("");
   const [manageSort, setManageSort] = useState<ManageSort>("date-desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -236,6 +237,21 @@ export default function AdminPage() {
       await fetchConcepts();
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleRefresh(id: string, title: string) {
+    setRefreshingId(id);
+    try {
+      const res = await fetch(`/api/concepts/${id}`, { method: "PATCH" });
+      const data = await res.json();
+      if (!res.ok) {
+        window.alert(data.error || `Could not refresh ${title}`);
+        return;
+      }
+      await fetchConcepts();
+    } finally {
+      setRefreshingId(null);
     }
   }
 
@@ -766,24 +782,39 @@ export default function AdminPage() {
                             {c.relatedTitles.length}
                           </td>
                           <td className="px-4 py-3">
-                            <button
-                              onClick={() => {
-                                const confirmed = window.confirm(
-                                  `Delete \"${c.title}\" from the glossary?`
-                                );
-                                if (confirmed) void handleDelete(c.id);
-                              }}
-                              disabled={deletingId === c.id}
-                              className="opacity-0 group-hover:opacity-100 rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-all disabled:opacity-50"
-                              aria-label={`Delete ${c.title}`}
-                              title={`Delete ${c.title}`}
-                            >
-                              {deletingId === c.id ? (
-                                <Loader2 className="size-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="size-3.5" />
-                              )}
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => void handleRefresh(c.id, c.title)}
+                                disabled={refreshingId === c.id}
+                                className="rounded-lg p-1.5 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-500 transition-all disabled:opacity-50"
+                                aria-label={`Refresh ${c.title}`}
+                                title={`Refresh ${c.title}`}
+                              >
+                                {refreshingId === c.id ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                  <RotateCw className="size-3.5" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const confirmed = window.confirm(
+                                    `Delete \"${c.title}\" from the glossary?`
+                                  );
+                                  if (confirmed) void handleDelete(c.id);
+                                }}
+                                disabled={deletingId === c.id}
+                                className="rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-all disabled:opacity-50"
+                                aria-label={`Delete ${c.title}`}
+                                title={`Delete ${c.title}`}
+                              >
+                                {deletingId === c.id ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="size-3.5" />
+                                )}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -62,6 +62,10 @@ export function getConceptBySlug(slug: string): Concept | undefined {
   return read().concepts.find((c) => c.slug === slug);
 }
 
+export function getConceptById(id: string): Concept | undefined {
+  return read().concepts.find((c) => c.id === id);
+}
+
 export function addConcept(concept: Concept): { concept: Concept; created: boolean } {
   const store = read();
   const existing = store.concepts.find((c) => c.url === concept.url);
@@ -69,6 +73,16 @@ export function addConcept(concept: Concept): { concept: Concept; created: boole
   store.concepts.push(concept);
   write(store);
   return { concept, created: true };
+}
+
+export function updateConcept(id: string, nextConcept: Concept): Concept | null {
+  const store = read();
+  const index = store.concepts.findIndex((c) => c.id === id);
+  if (index < 0) return null;
+
+  store.concepts[index] = nextConcept;
+  write(store);
+  return nextConcept;
 }
 
 export function deleteConcept(id: string): boolean {
