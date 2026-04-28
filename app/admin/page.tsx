@@ -6,13 +6,13 @@ import { usePathname } from "next/navigation";
 import {
   Plus, Trash2, Loader2, ArrowRight, BookOpen, LogOut,
   Search, X, Check, Upload, Globe, BarChart3, Lock,
-  ArrowUpDown, Hash, Network, RotateCw,
+  ArrowUpDown, Hash, Network, RotateCw, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Concept } from "@/lib/store";
 import ConceptGraphExplorer from "@/components/ConceptGraphExplorer";
 
-type Section = "overview" | "add" | "manage" | "graph";
+type Section = "overview" | "add" | "manage" | "graph" | "settings";
 type Suggestion = { title: string; lang: string; count: number };
 type SortOrder = "connections" | "alpha";
 type ManageSort = "date-desc" | "date-asc" | "title" | "lang" | "links-desc" | "links-asc";
@@ -23,7 +23,7 @@ type BulkResult = {
   title?: string;
 };
 
-const ADMIN_SECTIONS: Section[] = ["overview", "add", "manage", "graph"];
+const ADMIN_SECTIONS: Section[] = ["overview", "add", "manage", "graph", "settings"];
 
 function getSectionFromPathname(pathname: string): Section {
   const parts = pathname.split("/").filter(Boolean);
@@ -89,6 +89,15 @@ export default function AdminPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
+  // Settings
+  const [inDegreeWeight, setInDegreeWeight] = useState(0);
+  const [outDegreeWeight, setOutDegreeWeight] = useState(0);
+  const [inDegreeWeightDraft, setInDegreeWeightDraft] = useState("0");
+  const [outDegreeWeightDraft, setOutDegreeWeightDraft] = useState("0");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsSuccess, setSettingsSuccess] = useState("");
+
   useEffect(() => {
     setMounted(true);
     const stored = sessionStorage.getItem("blanket_admin_auth");
@@ -111,9 +120,26 @@ export default function AdminPage() {
     }
   }, []);
 
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/settings");
+      const data = await res.json();
+      setInDegreeWeight(data.inDegreeWeight ?? 0);
+      setInDegreeWeightDraft((data.inDegreeWeight ?? 0).toString());
+      setOutDegreeWeight(data.outDegreeWeight ?? 0);
+      setOutDegreeWeightDraft((data.outDegreeWeight ?? 0).toString());
+    } catch {
+      // Use defaults
+    }
+  }, []);
+
   useEffect(() => {
     if (auth) fetchConcepts();
   }, [auth, fetchConcepts]);
+
+  useEffect(() => {
+    if (auth) fetchSettings();
+  }, [auth, fetchSettings]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -255,6 +281,38 @@ export default function AdminPage() {
     }
   }
 
+  async function handleSaveSettings(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingSettings(true);
+    setSettingsError("");
+    setSettingsSuccess("");
+    try {
+      const finalInDegree = parseFloat(inDegreeWeightDraft) || 0;
+      const finalOutDegree = parseFloat(outDegreeWeightDraft) || 0;
+      
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSettingsError(data.error || "Error saving settings");
+        return;
+      }
+      setInDegreeWeight(data.inDegreeWeight);
+      setInDegreeWeightDraft(data.inDegreeWeight.toString());
+      setOutDegreeWeight(data.outDegreeWeight);
+      setOutDegreeWeightDraft(data.outDegreeWeight.toString());
+      setSettingsSuccess("Settings saved");
+      setTimeout(() => setSettingsSuccess(""), 3000);
+    } catch {
+      setSettingsError("Could not save settings");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
   // Derived state
   const langs = Array.from(new Set(concepts.map((c) => c.lang))).sort();
   const rawSuggestions = computeSuggestions(concepts, langFilter, minCount);
@@ -349,6 +407,7 @@ export default function AdminPage() {
     { id: "add", label: "Add concepts", icon: <Plus className="size-4" /> },
     { id: "manage", label: "Manage", icon: <BookOpen className="size-4" /> },
     { id: "graph", label: "Graph", icon: <Network className="size-4" /> },
+    { id: "settings", label: "Settings", icon: <Settings className="size-4" /> },
   ];
 
   return (
@@ -853,6 +912,99 @@ export default function AdminPage() {
                   <ConceptGraphExplorer concepts={concepts} />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── SETTINGS ─────────────────────────────────────────────────── */}
+          {section === "settings" && (
+            <div className="max-w-2xl space-y-6 animate-fade-in">
+              <div>
+                <h2 className="text-base font-semibold text-zinc-900 mb-0.5">Settings</h2>
+                <p className="text-sm text-zinc-400">Configure behavior</p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
+                <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+                  Ranking Function
+                </h3>
+                <form onSubmit={handleSaveSettings} className="space-y-4">
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-zinc-900">
+                      In-Degree Weight
+                    </label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.001"
+                        value={inDegreeWeightDraft}
+                        onChange={(e) => setInDegreeWeightDraft(e.target.value)}
+                        className="flex-1"
+                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={inDegreeWeightDraft}
+                          onChange={(e) => setInDegreeWeightDraft(e.target.value)}
+                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-zinc-900">
+                      Out-Degree Weight
+                    </label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.001"
+                        value={outDegreeWeightDraft}
+                        onChange={(e) => setOutDegreeWeightDraft(e.target.value)}
+                        className="flex-1"
+                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={outDegreeWeightDraft}
+                          onChange={(e) => setOutDegreeWeightDraft(e.target.value)}
+                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={savingSettings}
+                    className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 transition-colors"
+                  >
+                    {savingSettings ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Check className="size-4" />
+                    )}
+                    {savingSettings ? "Saving…" : "Save"}
+                  </button>
+                </form>
+                {settingsError && (
+                  <p className="flex items-center gap-1.5 text-xs text-red-500">
+                    <X className="size-3.5 shrink-0" /> {settingsError}
+                  </p>
+                )}
+                {settingsSuccess && (
+                  <p className="flex items-center gap-1.5 text-xs text-emerald-600">
+                    <Check className="size-3.5 shrink-0" /> {settingsSuccess}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </main>

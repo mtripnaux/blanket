@@ -1,0 +1,20 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSettings, updateSettings } from "@/lib/store";
+
+export async function GET(_req: NextRequest) {
+  const settings = getSettings();
+  return NextResponse.json(settings);
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const updated = updateSettings({
+      inDegreeWeight: body.inDegreeWeight !== undefined ? parseFloat(body.inDegreeWeight) : undefined,
+      outDegreeWeight: body.outDegreeWeight !== undefined ? parseFloat(body.outDegreeWeight) : undefined,
+    });
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 400 });
+  }
+}

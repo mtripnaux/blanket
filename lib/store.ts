@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
 
+export type Settings = {
+  inDegreeWeight: number;
+  outDegreeWeight: number;
+};
+
 export type Concept = {
   id: string;
   title: string;
@@ -13,7 +18,7 @@ export type Concept = {
   createdAt: string;
 };
 
-type Store = { concepts: Concept[] };
+type Store = { concepts: Concept[]; settings?: Settings };
 
 const DATA_PATH = path.join(process.cwd(), "data", "glossary.json");
 
@@ -22,7 +27,7 @@ function read(): Store {
     const raw = fs.readFileSync(DATA_PATH, "utf-8");
     return JSON.parse(raw);
   } catch {
-    return { concepts: [] };
+      return { concepts: [], settings: { inDegreeWeight: 0, outDegreeWeight: 0 } };
   }
 }
 
@@ -30,7 +35,16 @@ function write(store: Store): void {
   fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), "utf-8");
 }
 
-function buildFrontierScores(concepts: Concept[], exponent: number): Map<string, number> {
+function smoothNormalize(value: number, max: number): number {
+  if (value <= 0 || max <= 0) return 0;
+  return Math.log1p(value) / Math.log1p(max);
+}
+
+function buildFrontierScores(
+  concepts: Concept[],
+  inDegreeWeight: number,
+  outDegreeWeight: number
+): Map<string, number> {
   const glossary = new Set(concepts.map((c) => c.title.toLowerCase()));
 
   const inDegree = new Map<string, number>();
@@ -41,21 +55,65 @@ function buildFrontierScores(concepts: Concept[], exponent: number): Map<string,
     }
   }
 
+  // Find max degrees for proper normalization
+  let maxInDegree = 0;
+  let maxOutDegree = 0;
+  for (const c of concepts) {
+    const outDeg = c.relatedTitles.filter((t) => glossary.has(t.toLowerCase())).length;
+    const inDeg = inDegree.get(c.title.toLowerCase()) ?? 0;
+    maxInDegree = Math.max(maxInDegree, inDeg);
+    maxOutDegree = Math.max(maxOutDegree, outDeg);
+  }
+
   const scores = new Map<string, number>();
   for (const c of concepts) {
-    const total = c.relatedTitles.length;
-    const outLinks = c.relatedTitles.filter((t) => !glossary.has(t.toLowerCase())).length;
-    const deg = inDegree.get(c.title.toLowerCase()) ?? 0;
-    const outRatio = total > 0 ? outLinks / total : 0;
-    scores.set(c.id, outRatio * Math.log1p(deg) / Math.pow(deg + 1, exponent));
+    const inDeg = inDegree.get(c.title.toLowerCase()) ?? 0;
+    const outDeg = c.relatedTitles.filter((t) => glossary.has(t.toLowerCase())).length;
+
+    // Pure degree-based score with smooth (log) curve
+    let score = 0;
+
+    // Apply inDegree weight: smooth normalized contribution in [0, 1]
+    if (inDegreeWeight !== 0) {
+      const inDegreeNorm = smoothNormalize(inDeg, maxInDegree);
+      score += inDegreeWeight * inDegreeNorm;
+    }
+
+    // Apply outDegree weight: smooth normalized contribution in [0, 1]
+    if (outDegreeWeight !== 0) {
+      const outDegreeNorm = smoothNormalize(outDeg, maxOutDegree);
+      score += outDegreeWeight * outDegreeNorm;
+    }
+
+    scores.set(c.id, score);
   }
   return scores;
 }
 
-export function getConcepts(exponent = 0.5): Concept[] {
-  const concepts = read().concepts;
-  const scores = buildFrontierScores(concepts, exponent);
+export function getConcepts(): Concept[] {
+  const store = read();
+  const concepts = store.concepts;
+  const settings = store.settings ?? { inDegreeWeight: 0, outDegreeWeight: 0 };
+  const scores = buildFrontierScores(
+    concepts,
+    settings.inDegreeWeight,
+    settings.outDegreeWeight
+  );
   return concepts.sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0));
+}
+
+export function getSettings(): Settings {
+  const store = read();
+  return store.settings ?? { inDegreeWeight: 0, outDegreeWeight: 0 };
+}
+
+export function updateSettings(nextSettings: Partial<Settings>): Settings {
+  const store = read();
+  const current = store.settings ?? { inDegreeWeight: 0, outDegreeWeight: 0 };
+  const updated: Settings = { ...current, ...nextSettings };
+  store.settings = updated;
+  write(store);
+  return updated;
 }
 
 export function getConceptBySlug(slug: string): Concept | undefined {

@@ -5,8 +5,7 @@ import { randomUUID } from "crypto";
 
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q") ?? "";
-  const exponent = Math.max(0.1, Math.min(1.0, parseFloat(req.nextUrl.searchParams.get("exponent") ?? "0.5")));
-  let concepts = getConcepts(exponent);
+  let concepts = getConcepts();
   if (q.trim()) {
     const lower = q.toLowerCase();
     concepts = concepts.filter(
@@ -15,7 +14,11 @@ export async function GET(req: NextRequest) {
         c.definition.toLowerCase().includes(lower)
     );
   }
-  return NextResponse.json(concepts);
+  return NextResponse.json(concepts, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
