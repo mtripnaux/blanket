@@ -87,7 +87,6 @@ export default function AdminPage() {
   const [manageSearch, setManageSearch] = useState("");
   const [manageSort, setManageSort] = useState<ManageSort>("date-desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -235,7 +234,6 @@ export default function AdminPage() {
     try {
       await fetch(`/api/concepts/${id}`, { method: "DELETE" });
       await fetchConcepts();
-      setConfirmDelete(null);
     } finally {
       setDeletingId(null);
     }
@@ -768,34 +766,24 @@ export default function AdminPage() {
                             {c.relatedTitles.length}
                           </td>
                           <td className="px-4 py-3">
-                            {confirmDelete === c.id ? (
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => handleDelete(c.id)}
-                                  disabled={deletingId === c.id}
-                                  className="text-xs text-red-500 font-medium hover:text-red-700 transition-colors whitespace-nowrap"
-                                >
-                                  {deletingId === c.id ? (
-                                    <Loader2 className="size-3 animate-spin" />
-                                  ) : (
-                                    "Delete"
-                                  )}
-                                </button>
-                                <button
-                                  onClick={() => setConfirmDelete(null)}
-                                  className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setConfirmDelete(c.id)}
-                                className="opacity-0 group-hover:opacity-100 rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-all"
-                              >
+                            <button
+                              onClick={() => {
+                                const confirmed = window.confirm(
+                                  `Delete \"${c.title}\" from the glossary?`
+                                );
+                                if (confirmed) void handleDelete(c.id);
+                              }}
+                              disabled={deletingId === c.id}
+                              className="opacity-0 group-hover:opacity-100 rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-all disabled:opacity-50"
+                              aria-label={`Delete ${c.title}`}
+                              title={`Delete ${c.title}`}
+                            >
+                              {deletingId === c.id ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : (
                                 <Trash2 className="size-3.5" />
-                              </button>
-                            )}
+                              )}
+                            </button>
                           </td>
                         </tr>
                       ))}
