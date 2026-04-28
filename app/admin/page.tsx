@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Plus, Trash2, Loader2, ArrowRight, BookOpen, LogOut,
@@ -14,7 +14,7 @@ import ConceptGraphExplorer from "@/components/ConceptGraphExplorer";
 type Section = "overview" | "add" | "manage" | "graph";
 type Suggestion = { title: string; lang: string; count: number };
 type SortOrder = "connections" | "alpha";
-type ManageSort = "date-desc" | "date-asc" | "title" | "lang" | "links-desc";
+type ManageSort = "date-desc" | "date-asc" | "title" | "lang" | "links-desc" | "links-asc";
 type BulkResult = {
   url: string;
   status: "success" | "error" | "duplicate" | "pending";
@@ -58,7 +58,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
 
   // Add form
-  const [url, setUrl] = useState("");
+  const [importUrls, setImportUrls] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [addSuccess, setAddSuccess] = useState("");
@@ -68,9 +68,7 @@ export default function AdminPage() {
   const [minCount, setMinCount] = useState(1);
   const [sortOrder, setSortOrder] = useState<SortOrder>("connections");
 
-  // Bulk import
-  const [bulkUrls, setBulkUrls] = useState("");
-  const [bulkImporting, setBulkImporting] = useState(false);
+  // Import results
   const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
 
   // Manage
@@ -78,8 +76,6 @@ export default function AdminPage() {
   const [manageSort, setManageSort] = useState<ManageSort>("date-desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
-  const urlInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -149,40 +145,37 @@ export default function AdminPage() {
     }
   }
 
-  async function handleAdd(e: React.FormEvent) {
+  async function handleImport(e: React.FormEvent) {
     e.preventDefault();
-    if (!url.trim()) return;
+    const lines = importUrls.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+
     setAdding(true);
     setAddError("");
     setAddSuccess("");
-    const result = await importUrl(url);
-    if (result.ok) {
-      setAddSuccess(`"${result.title}" added successfully`);
-      setUrl("");
-      setTimeout(() => setAddSuccess(""), 4000);
-    } else {
-      setAddError(result.error || "Error");
-    }
-    setAdding(false);
-  }
 
-  async function handleSuggestion(s: Suggestion) {
-    const wikiUrl = `https://${s.lang}.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`;
-    const key = `${s.lang}::${s.title}`;
-    setImportingSlug(key);
-    await importUrl(wikiUrl);
-    setImportingSlug(null);
-  }
+    let successCount = 0;
+    let duplicateCount = 0;
+    let errorCount = 0;
+    let firstSuccessTitle: string | undefined;
+    let firstErrorMessage: string | undefined;
 
-  async function handleBulkImport() {
-    const lines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) return;
-    setBulkImporting(true);
     setBulkResults(lines.map((u) => ({ url: u, status: "pending" })));
 
     for (let i = 0; i < lines.length; i++) {
       const wikiUrl = lines[i];
       const result = await importUrl(wikiUrl);
+
+      if (result.ok) {
+        successCount++;
+        if (!firstSuccessTitle) firstSuccessTitle = result.title;
+      } else if (result.error === "Already in glossary") {
+        duplicateCount++;
+      } else {
+        errorCount++;
+        if (!firstErrorMessage) firstErrorMessage = result.error;
+      }
+
       setBulkResults((prev) => {
         const next = [...prev];
         next[i] = {
@@ -194,7 +187,30 @@ export default function AdminPage() {
         return next;
       });
     }
-    setBulkImporting(false);
+
+    if (lines.length === 1) {
+      if (successCount === 1) {
+        setAddSuccess(`"${firstSuccessTitle}" added successfully`);
+      } else {
+        setAddError(firstErrorMessage || "Error");
+      }
+    } else {
+      setAddSuccess(
+        `${successCount} imported${duplicateCount ? ` · ${duplicateCount} duplicates` : ""}${errorCount ? ` · ${errorCount} errors` : ""}`
+      );
+    }
+
+    setImportUrls("");
+    setTimeout(() => setAddSuccess(""), 4000);
+    setAdding(false);
+  }
+
+  async function handleSuggestion(s: Suggestion) {
+    const wikiUrl = `https://${s.lang}.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`;
+    const key = `${s.lang}::${s.title}`;
+    setImportingSlug(key);
+    await importUrl(wikiUrl);
+    setImportingSlug(null);
   }
 
   async function handleDelete(id: string) {
@@ -229,6 +245,7 @@ export default function AdminPage() {
       if (manageSort === "title") return a.title.localeCompare(b.title);
       if (manageSort === "lang") return a.lang.localeCompare(b.lang);
       if (manageSort === "links-desc") return b.relatedTitles.length - a.relatedTitles.length;
+      if (manageSort === "links-asc") return a.relatedTitles.length - b.relatedTitles.length;
       return 0;
     });
 
@@ -439,28 +456,44 @@ export default function AdminPage() {
                 <p className="text-sm text-zinc-400">Import from Wikipedia or explore the frontier</p>
               </div>
 
-              {/* Single URL import */}
-              <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-3">
+              {/* Import from URL(s) */}
+              <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
                 <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
-                  Wikipedia URL
+                  Import from Wikipedia URL(s)
                 </h3>
-                <form onSubmit={handleAdd} className="flex gap-2">
-                  <input
-                    ref={urlInputRef}
-                    type="url"
-                    placeholder="https://en.wikipedia.org/wiki/Photosynthesis"
-                    value={url}
-                    onChange={(e) => { setUrl(e.target.value); setAddError(""); setAddSuccess(""); }}
-                    className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400"
+                <form onSubmit={handleImport} className="space-y-2">
+                  <textarea
+                    value={importUrls}
+                    onChange={(e) => { setImportUrls(e.target.value); setAddError(""); setAddSuccess(""); }}
+                    placeholder={
+                      "https://en.wikipedia.org/wiki/Photosynthesis\nhttps://en.wikipedia.org/wiki/Entropy\nhttps://fr.wikipedia.org/wiki/Complexité"
+                    }
+                    rows={4}
+                    className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400 font-mono resize-none leading-relaxed"
                   />
-                  <button
-                    type="submit"
-                    disabled={adding || !url.trim()}
-                    className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 transition-colors shrink-0"
-                  >
-                    {adding ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
-                    {adding ? "Importing…" : "Import"}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={adding || !importUrls.trim()}
+                      className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 transition-colors"
+                    >
+                      {adding ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Upload className="size-4" />
+                      )}
+                      {adding ? "Importing…" : "Import"}
+                    </button>
+                    {bulkResults.length > 0 && !adding && (
+                      <button
+                        type="button"
+                        onClick={() => { setBulkResults([]); setImportUrls(""); }}
+                        className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </form>
                 {addError && (
                   <p className="flex items-center gap-1.5 text-xs text-red-500">
@@ -471,6 +504,40 @@ export default function AdminPage() {
                   <p className="flex items-center gap-1.5 text-xs text-emerald-600">
                     <Check className="size-3.5 shrink-0" /> {addSuccess}
                   </p>
+                )}
+                {bulkResults.length > 0 && (
+                  <ul className="space-y-1.5 border-t border-zinc-100 pt-4">
+                    {bulkResults.map((r, i) => (
+                      <li key={i} className="flex items-center gap-2 text-xs">
+                        {r.status === "pending" && (
+                          <Loader2 className="size-3.5 text-zinc-400 animate-spin shrink-0" />
+                        )}
+                        {r.status === "success" && (
+                          <Check className="size-3.5 text-emerald-500 shrink-0" />
+                        )}
+                        {r.status === "duplicate" && (
+                          <span className="text-amber-500 shrink-0 font-bold leading-none">≈</span>
+                        )}
+                        {r.status === "error" && (
+                          <X className="size-3.5 text-red-500 shrink-0" />
+                        )}
+                        <span
+                          className={cn(
+                            "truncate",
+                            r.status === "success" && "text-zinc-700",
+                            r.status === "duplicate" && "text-amber-600",
+                            r.status === "error" && "text-red-500",
+                            r.status === "pending" && "text-zinc-400"
+                          )}
+                        >
+                          {r.status === "success" ? (r.title ?? r.url) : r.url}
+                        </span>
+                        {r.message && r.status !== "success" && (
+                          <span className="text-zinc-400 shrink-0">— {r.message}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
 
@@ -581,80 +648,6 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* Bulk import */}
-              <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
-                <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
-                  Bulk import
-                </h3>
-                <div className="space-y-2">
-                  <textarea
-                    value={bulkUrls}
-                    onChange={(e) => setBulkUrls(e.target.value)}
-                    placeholder={
-                      "https://en.wikipedia.org/wiki/Entropy\nhttps://fr.wikipedia.org/wiki/Complexité\nhttps://en.wikipedia.org/wiki/Emergence"
-                    }
-                    rows={5}
-                    className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400 font-mono resize-none leading-relaxed"
-                  />
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleBulkImport}
-                      disabled={bulkImporting || !bulkUrls.trim()}
-                      className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 transition-colors"
-                    >
-                      {bulkImporting ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Upload className="size-4" />
-                      )}
-                      {bulkImporting ? "Importing…" : "Import all"}
-                    </button>
-                    {bulkResults.length > 0 && !bulkImporting && (
-                      <button
-                        onClick={() => { setBulkResults([]); setBulkUrls(""); }}
-                        className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {bulkResults.length > 0 && (
-                  <ul className="space-y-1.5 border-t border-zinc-100 pt-4">
-                    {bulkResults.map((r, i) => (
-                      <li key={i} className="flex items-center gap-2 text-xs">
-                        {r.status === "pending" && (
-                          <Loader2 className="size-3.5 text-zinc-400 animate-spin shrink-0" />
-                        )}
-                        {r.status === "success" && (
-                          <Check className="size-3.5 text-emerald-500 shrink-0" />
-                        )}
-                        {r.status === "duplicate" && (
-                          <span className="text-amber-500 shrink-0 font-bold leading-none">≈</span>
-                        )}
-                        {r.status === "error" && (
-                          <X className="size-3.5 text-red-500 shrink-0" />
-                        )}
-                        <span
-                          className={cn(
-                            "truncate",
-                            r.status === "success" && "text-zinc-700",
-                            r.status === "duplicate" && "text-amber-600",
-                            r.status === "error" && "text-red-500",
-                            r.status === "pending" && "text-zinc-400"
-                          )}
-                        >
-                          {r.status === "success" ? (r.title ?? r.url) : r.url}
-                        </span>
-                        {r.message && r.status !== "success" && (
-                          <span className="text-zinc-400 shrink-0">— {r.message}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
             </div>
           )}
 
@@ -685,6 +678,7 @@ export default function AdminPage() {
                   <option value="date-desc">Newest first</option>
                   <option value="date-asc">Oldest first</option>
                   <option value="links-desc">Most links</option>
+                  <option value="links-asc">Moins de liens</option>
                   <option value="title">Title A→Z</option>
                   <option value="lang">Language</option>
                 </select>
