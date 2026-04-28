@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Plus, Trash2, Loader2, ArrowRight, BookOpen, LogOut,
   Search, X, Check, Upload, Globe, BarChart3, Lock,
@@ -21,6 +22,16 @@ type BulkResult = {
   message?: string;
   title?: string;
 };
+
+const ADMIN_SECTIONS: Section[] = ["overview", "add", "manage", "graph"];
+
+function getSectionFromPathname(pathname: string): Section {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] !== "admin") return "add";
+  const section = parts[1];
+  if (section && ADMIN_SECTIONS.includes(section as Section)) return section as Section;
+  return "add";
+}
 
 function computeSuggestions(
   concepts: Concept[],
@@ -48,6 +59,7 @@ function computeSuggestions(
 }
 
 export default function AdminPage() {
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [auth, setAuth] = useState(false);
   const [password, setPassword] = useState("");
@@ -82,6 +94,11 @@ export default function AdminPage() {
     const stored = sessionStorage.getItem("blanket_admin_auth");
     if (stored === "1") setAuth(true);
   }, []);
+
+  useEffect(() => {
+    const nextSection = getSectionFromPathname(pathname);
+    setSection((prev) => (prev === nextSection ? prev : nextSection));
+  }, [pathname]);
 
   const fetchConcepts = useCallback(async () => {
     setLoading(true);
@@ -352,9 +369,9 @@ export default function AdminPage() {
         {/* Sidebar */}
         <nav className="w-48 bg-white border-r border-zinc-200 p-2.5 space-y-0.5 shrink-0">
           {navItems.map((item) => (
-            <button
+            <Link
               key={item.id}
-              onClick={() => setSection(item.id)}
+              href={item.id === "add" ? "/admin" : `/admin/${item.id}`}
               className={cn(
                 "w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left",
                 section === item.id
@@ -364,7 +381,7 @@ export default function AdminPage() {
             >
               {item.icon}
               {item.label}
-            </button>
+            </Link>
           ))}
         </nav>
 
@@ -376,7 +393,7 @@ export default function AdminPage() {
             <div className="max-w-2xl space-y-6 animate-fade-in">
               <div>
                 <h2 className="text-base font-semibold text-zinc-900 mb-0.5">Overview</h2>
-                <p className="text-sm text-zinc-400">Your glossary at a glance</p>
+                <p className="text-sm text-zinc-400">Your glossary</p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -452,8 +469,8 @@ export default function AdminPage() {
           {section === "add" && (
             <div className="max-w-2xl space-y-5 animate-fade-in">
               <div>
-                <h2 className="text-base font-semibold text-zinc-900 mb-0.5">Add concepts</h2>
-                <p className="text-sm text-zinc-400">Import from Wikipedia or explore the frontier</p>
+                <h2 className="text-base font-semibold text-zinc-900 mb-0.5">Learn new concepts</h2>
+                <p className="text-sm text-zinc-400">Explore your knowledge frontier</p>
               </div>
 
               {/* Import from URL(s) */}
@@ -678,7 +695,7 @@ export default function AdminPage() {
                   <option value="date-desc">Newest first</option>
                   <option value="date-asc">Oldest first</option>
                   <option value="links-desc">Most links</option>
-                  <option value="links-asc">Moins de liens</option>
+                  <option value="links-asc">Least links</option>
                   <option value="title">Title A→Z</option>
                   <option value="lang">Language</option>
                 </select>
@@ -798,13 +815,13 @@ export default function AdminPage() {
             <div className="animate-fade-in flex flex-col" style={{ height: "calc(100vh - 160px)" }}>
               <div className="mb-4 shrink-0 flex items-end justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-zinc-900 mb-0.5">Graph</h2>
+                  <h2 className="text-base font-semibold text-zinc-900 mb-0.5">Connectivity Graph</h2>
                   <p className="text-sm text-zinc-400">
-                    Scroll to zoom · drag background to pan · drag nodes to reposition · click to open
+                    Scroll, zoom, pan and click to open
                   </p>
                 </div>
                 <span className="text-xs text-zinc-400 tabular-nums shrink-0 ml-4">
-                  {concepts.length} nodes · {concepts.reduce((s, c) => s + c.relatedTitles.length, 0) >> 1} edges
+                  {concepts.reduce((s, c) => s + c.relatedTitles.length, 0) >> 1} edges
                 </span>
               </div>
               {concepts.length === 0 ? (
