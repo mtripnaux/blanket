@@ -6,6 +6,7 @@ export type Settings = {
   outDegreeWeight: number;
   randomRanking: boolean;
   homepagePageSize: number;
+  graphMaxNodes: number | null; // null = no limit
 };
 
 export type Concept = {
@@ -24,7 +25,7 @@ type Store = { concepts: Concept[]; settings?: Settings };
 
 const DATA_PATH = path.join(process.cwd(), "data", "glossary.json");
 
-const DEFAULT_SETTINGS: Settings = { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0, homepagePageSize: 50 };
+const DEFAULT_SETTINGS: Settings = { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0, homepagePageSize: 50, graphMaxNodes: 1000 };
 
 let storeCache: { store: Store; mtime: number } | null = null;
 

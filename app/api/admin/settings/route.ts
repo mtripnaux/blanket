@@ -14,6 +14,7 @@ export async function PATCH(req: NextRequest) {
       inDegreeWeight: body.inDegreeWeight !== undefined ? parseFloat(body.inDegreeWeight) : undefined,
       outDegreeWeight: body.outDegreeWeight !== undefined ? parseFloat(body.outDegreeWeight) : undefined,
       homepagePageSize: body.homepagePageSize !== undefined ? Math.max(1, parseInt(body.homepagePageSize, 10)) : undefined,
+      graphMaxNodes: body.graphMaxNodes !== undefined ? (body.graphMaxNodes === null ? null : Math.max(1, parseInt(body.graphMaxNodes, 10))) : undefined,
     });
     return NextResponse.json(updated);
   } catch (err: any) {
