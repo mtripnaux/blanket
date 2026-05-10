@@ -412,15 +412,16 @@ export default function AdminPage() {
     }
   }
 
-  // Derived state
-  const langs = Array.from(new Set(concepts.map((c) => c.lang))).sort();
-  const rawSuggestions = computeSuggestions(concepts, langFilter, minCount);
-  const sortedSuggestions = [...rawSuggestions].sort((a, b) =>
+  // Derived state (all memoized to avoid blocking the main thread on tab switch)
+  const langs = useMemo(() => Array.from(new Set(concepts.map((c) => c.lang))).sort(), [concepts]);
+  const rawSuggestions = useMemo(() => computeSuggestions(concepts, langFilter, minCount), [concepts, langFilter, minCount]);
+  const sortedSuggestions = useMemo(() => [...rawSuggestions].sort((a, b) =>
     sortOrder === "connections" ? b.count - a.count : a.title.localeCompare(b.title)
-  );
-  const visibleSuggestions = sortedSuggestions.slice(0, frontierLimit);
+  ), [rawSuggestions, sortOrder]);
+  const visibleSuggestions = useMemo(() => sortedSuggestions.slice(0, frontierLimit), [sortedSuggestions, frontierLimit]);
+  const frontierTotal = useMemo(() => computeSuggestions(concepts, "all", 1).length, [concepts]);
 
-  const filteredConcepts = concepts
+  const filteredConcepts = useMemo(() => concepts
     .filter(
       (c) =>
         !manageSearch ||
@@ -435,16 +436,16 @@ export default function AdminPage() {
       if (manageSort === "links-desc") return b.relatedTitles.length - a.relatedTitles.length;
       if (manageSort === "links-asc") return a.relatedTitles.length - b.relatedTitles.length;
       return 0;
-    });
+    }), [concepts, manageSearch, manageSort]);
 
-  const langStats = concepts.reduce((acc, c) => {
+  const langStats = useMemo(() => concepts.reduce((acc, c) => {
     acc[c.lang] = (acc[c.lang] ?? 0) + 1;
     return acc;
-  }, {} as Record<string, number>);
+  }, {} as Record<string, number>), [concepts]);
 
-  const mostConnected = [...concepts]
+  const mostConnected = useMemo(() => [...concepts]
     .sort((a, b) => b.relatedTitles.length - a.relatedTitles.length)
-    .slice(0, 5);
+    .slice(0, 5), [concepts]);
 
   const graphStats = useMemo(() => computeGraphStats(concepts), [concepts]);
 
@@ -574,7 +575,7 @@ export default function AdminPage() {
                 {[
                   { label: "Concepts", value: concepts.length },
                   { label: "Languages", value: langs.length },
-                  { label: "Frontier", value: computeSuggestions(concepts, "all", 1).length },
+                  { label: "Frontier", value: frontierTotal },
                 ].map(({ label, value }) => (
                   <div key={label} className="bg-white rounded-xl border border-zinc-200 p-4">
                     <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">
