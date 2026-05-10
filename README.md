@@ -1,6 +1,6 @@
-# Your personal Markov blanket
+# Personal Markov blanket
 
-A personal Wikipedia-based glossary. Add concepts via Wikipedia URLs, browse and search them.
+Your Wikipedia glossary. Add concepts via URLs.
 
 ## Setup
 
