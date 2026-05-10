@@ -4,14 +4,25 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Loader2, BookOpen, ChevronDown } from "lucide-react";
-import type { Concept } from "@/lib/store";
+
+type SlimConcept = {
+  id: string;
+  slug: string;
+  title: string;
+  definition: string;
+  thumbnail?: string;
+  lang: string;
+  linkCount: number;
+};
 
 const DEFAULT_PAGE_SIZE = 50;
 
 export default function Home() {
   const router = useRouter();
-  const [concepts, setConcepts] = useState<Concept[]>([]);
-  const [allConcepts, setAllConcepts] = useState<Concept[]>([]);
+  const [firstPage, setFirstPage] = useState<SlimConcept[]>([]);
+  const [allConcepts, setAllConcepts] = useState<SlimConcept[]>([]);
+  const [allLoaded, setAllLoaded] = useState(false);
+  const [searchResults, setSearchResults] = useState<SlimConcept[] | null>(null);
   const [query, setQuery] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -19,22 +30,20 @@ export default function Home() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [displayCount, setDisplayCount] = useState(DEFAULT_PAGE_SIZE);
 
-  // Fetch settings then concepts
+  // Phase 1: fetch settings + first page in parallel → fast first paint
   useEffect(() => {
     let mounted = true;
     (async () => {
-      setLoading(true);
       try {
-        const [settingsRes, conceptsRes] = await Promise.all([
+        const [settingsRes, firstPage] = await Promise.all([
           fetch("/api/admin/settings").then((r) => r.json()).catch(() => ({})),
-          fetch("/api/concepts").then((r) => r.json()),
+          fetch(`/api/concepts?slim=1&limit=${DEFAULT_PAGE_SIZE}`).then((r) => r.json()),
         ]);
         if (!mounted) return;
         const size = settingsRes?.homepagePageSize ?? DEFAULT_PAGE_SIZE;
         setPageSize(size);
         setDisplayCount(size);
-        setAllConcepts(conceptsRes);
-        setConcepts(conceptsRes);
+        setFirstPage(firstPage);
       } finally {
         if (mounted) {
           setLoading(false);
@@ -45,18 +54,33 @@ export default function Home() {
     return () => { mounted = false; };
   }, []);
 
+  // Phase 2: background-load all concepts for search (non-blocking)
+  useEffect(() => {
+    if (!initialized) return;
+    let mounted = true;
+    fetch("/api/concepts?slim=1")
+      .then((r) => r.json())
+      .then((all: SlimConcept[]) => {
+        if (!mounted) return;
+        setAllConcepts(all);
+        setAllLoaded(true);
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [initialized]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Debounce user input
   useEffect(() => {
     const t = setTimeout(() => setQuery(queryDraft), 300);
     return () => clearTimeout(t);
   }, [queryDraft]);
 
-  // Build Fuse index once corpus is loaded
+  // Build Fuse index once all concepts are loaded
   const fuseRef = useRef<any | null>(null);
   const MAX_RESULTS = 200;
 
   useEffect(() => {
-    if (!allConcepts || allConcepts.length === 0) { fuseRef.current = null; return; }
+    if (!allLoaded || allConcepts.length === 0) { fuseRef.current = null; return; }
     let mounted = true;
     (async () => {
       try {
@@ -65,7 +89,7 @@ export default function Home() {
         if (!mounted) return;
         const F = (mod && (mod as any).default) || mod;
         fuseRef.current = new (F as any)(allConcepts, {
-          keys: ["title", "definition"],
+          keys: [{ name: "title", weight: 2 }, "definition"],
           threshold: 0.45,
           ignoreLocation: true,
           includeScore: true,
@@ -73,32 +97,36 @@ export default function Home() {
       } catch { fuseRef.current = null; }
     })();
     return () => { mounted = false; };
-  }, [allConcepts]);
+  }, [allLoaded, allConcepts]);
 
-  // Filter client-side from cached allConcepts
+  // Search: server-side while background load pending, Fuse after
   useEffect(() => {
     if (!query.trim()) {
-      setConcepts(allConcepts);
-      setLoading(false);
+      setSearchResults(null);
+      return;
+    }
+
+    if (!allLoaded) {
+      fetch(`/api/concepts?slim=1&q=${encodeURIComponent(query)}`)
+        .then((r) => r.json())
+        .then(setSearchResults)
+        .catch(() => {});
       return;
     }
 
     if (query.length < 2) {
       const lower = query.toLowerCase();
-      const filtered = allConcepts.filter((c) => c.title.toLowerCase().includes(lower));
-      setConcepts(filtered.slice(0, MAX_RESULTS));
-      setLoading(false);
+      setSearchResults(allConcepts.filter((c) => c.title.toLowerCase().includes(lower)).slice(0, MAX_RESULTS));
       return;
     }
 
-    setLoading(true);
     try {
       if (fuseRef.current) {
         const results = fuseRef.current.search(query, { limit: MAX_RESULTS });
-        setConcepts((results as any[]).map((r: any) => r.item as Concept));
+        setSearchResults((results as any[]).map((r: any) => r.item as SlimConcept));
       } else {
         const lower = query.toLowerCase();
-        setConcepts(
+        setSearchResults(
           allConcepts
             .filter((c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower))
             .slice(0, MAX_RESULTS)
@@ -106,24 +134,25 @@ export default function Home() {
       }
     } catch {
       const lower = query.toLowerCase();
-      setConcepts(
+      setSearchResults(
         allConcepts
           .filter((c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower))
           .slice(0, MAX_RESULTS)
       );
-    } finally {
-      setLoading(false);
     }
-  }, [query, allConcepts]);
+  }, [query, allConcepts, allLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When query changes, reset displayCount
+  // Reset displayCount when clearing search
   useEffect(() => {
     if (!query.trim()) setDisplayCount(pageSize);
   }, [query, pageSize]);
 
   const isFiltering = query.trim().length > 0;
-  const visibleConcepts = isFiltering ? concepts : concepts.slice(0, displayCount);
-  const hasMore = !isFiltering && concepts.length > displayCount;
+  // Only switch to allConcepts when the user has explicitly paginated beyond the first page
+  // to avoid a re-render flash when the background load completes.
+  const listSource = (allLoaded && displayCount > pageSize) ? allConcepts : firstPage;
+  const visibleConcepts = isFiltering ? (searchResults ?? []) : listSource.slice(0, displayCount);
+  const hasMore = !isFiltering && allLoaded && allConcepts.length > displayCount;
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -134,7 +163,7 @@ export default function Home() {
           placeholder="Search concepts…"
           value={queryDraft}
           onChange={(e) => setQueryDraft(e.target.value)}
-          className="w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-9 pr-4 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400"
+          className="w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-9 pr-4 py-2.5 text-sm outline-none placeholder:text-zinc-400"
         />
       </div>
 
@@ -143,7 +172,7 @@ export default function Home() {
           <div className="flex items-center justify-center py-16 text-zinc-400">
             <Loader2 className="size-5 animate-spin" />
           </div>
-        ) : concepts.length === 0 ? (
+        ) : visibleConcepts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <BookOpen className="size-10 text-zinc-200 mb-4" />
             {query ? (
@@ -163,19 +192,6 @@ export default function Home() {
         ) : (
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-100">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wide">
-                    Concept
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wide w-14">
-                    Lang
-                  </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wide w-16">
-                    Links
-                  </th>
-                </tr>
-              </thead>
               <tbody className="divide-y divide-zinc-100">
                 {visibleConcepts.map((concept) => (
                   <tr
@@ -200,14 +216,6 @@ export default function Home() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 uppercase tracking-wide">
-                        {concept.lang}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs tabular-nums text-zinc-400 text-right">
-                      {concept.relatedTitles.length}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -215,8 +223,8 @@ export default function Home() {
             <div className="px-4 py-3 border-t border-zinc-100 flex items-center justify-between">
               <span className="text-xs text-zinc-400">
                 {isFiltering
-                  ? `${concepts.length} result${concepts.length !== 1 ? "s" : ""} for "${query}"`
-                  : `${visibleConcepts.length} of ${concepts.length} concept${concepts.length !== 1 ? "s" : ""}`}
+                  ? `${visibleConcepts.length} result${visibleConcepts.length !== 1 ? "s" : ""} for "${query}"`
+                  : `${visibleConcepts.length} of ${allLoaded ? allConcepts.length : "…"} concept${allLoaded && allConcepts.length !== 1 ? "s" : ""}`}
               </span>
               {hasMore && (
                 <button
@@ -224,7 +232,7 @@ export default function Home() {
                   className="flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
                 >
                   <ChevronDown className="size-3.5" />
-                  Load {Math.min(pageSize, concepts.length - displayCount)} more
+                  Load {Math.min(pageSize, allConcepts.length - displayCount)} more
                 </button>
               )}
             </div>

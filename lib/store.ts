@@ -26,10 +26,16 @@ const DATA_PATH = path.join(process.cwd(), "data", "glossary.json");
 
 const DEFAULT_SETTINGS: Settings = { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0, homepagePageSize: 50 };
 
+let storeCache: { store: Store; mtime: number } | null = null;
+
 function read(): Store {
   try {
+    const mtime = fs.statSync(DATA_PATH).mtimeMs;
+    if (storeCache && storeCache.mtime === mtime) return storeCache.store;
     const raw = fs.readFileSync(DATA_PATH, "utf-8");
-    return JSON.parse(raw);
+    const store = JSON.parse(raw) as Store;
+    storeCache = { store, mtime };
+    return store;
   } catch {
     return { concepts: [], settings: { ...DEFAULT_SETTINGS } };
   }
@@ -37,6 +43,7 @@ function read(): Store {
 
 function write(store: Store): void {
   fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), "utf-8");
+  storeCache = null;
 }
 
 function shuffleConcepts(concepts: Concept[]): Concept[] {

@@ -3,8 +3,14 @@ import { getConcepts, addConcept } from "@/lib/store";
 import { fetchWikiConcept, parseWikiUrl, slugify } from "@/lib/wikipedia";
 import { randomUUID } from "crypto";
 
+const SLIM_DEFINITION_LENGTH = 200;
+
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q") ?? "";
+  const slim = req.nextUrl.searchParams.get("slim") === "1";
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : null;
+
   let concepts = getConcepts();
   if (q.trim()) {
     const lower = q.toLowerCase();
@@ -14,7 +20,20 @@ export async function GET(req: NextRequest) {
         c.definition.toLowerCase().includes(lower)
     );
   }
-  return NextResponse.json(concepts, {
+  if (limit) concepts = concepts.slice(0, limit);
+
+  const payload = slim
+    ? concepts.map(({ id, slug, title, definition, thumbnail, lang, relatedTitles }) => ({
+        id,
+        slug,
+        title,
+        definition: definition.length > SLIM_DEFINITION_LENGTH ? definition.slice(0, SLIM_DEFINITION_LENGTH) : definition,
+        thumbnail,
+        lang,
+        linkCount: relatedTitles.length,
+      }))
+    : concepts;
+  return NextResponse.json(payload, {
     headers: {
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
     },

@@ -767,7 +767,7 @@ export default function AdminPage() {
                     placeholder="Search concepts…"
                     value={manageSearch}
                     onChange={(e) => setManageSearch(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-4 py-2 text-sm outline-none focus:border-zinc-400 transition-colors placeholder:text-zinc-400"
+                    className="w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-4 py-2 text-sm outline-none placeholder:text-zinc-400"
                   />
                 </div>
                 <select
