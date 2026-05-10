@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -56,6 +56,125 @@ function computeSuggestions(
   }
 
   return Array.from(counts.values()).filter((s) => s.count >= minCount);
+}
+
+function computeGraphStats(concepts: Concept[]) {
+  const N = concepts.length;
+  if (N < 2) return null;
+
+  const titleIdx = new Map<string, number>();
+  concepts.forEach((c, i) => titleIdx.set(c.title.toLowerCase(), i));
+
+  // Build undirected edge set + directed counts for reciprocity
+  const edgeSet = new Set<string>();
+  const directedSet = new Set<string>();
+  const degree = new Int32Array(N);
+  const inDeg  = new Int32Array(N);
+  const outDeg = new Int32Array(N);
+
+  concepts.forEach((c, i) => {
+    for (const t of c.relatedTitles) {
+      const j = titleIdx.get(t.toLowerCase());
+      if (j === undefined || j === i) continue;
+      directedSet.add(`${i}→${j}`);
+      outDeg[i]++;
+      inDeg[j]++;
+      const key = `${Math.min(i, j)}-${Math.max(i, j)}`;
+      if (!edgeSet.has(key)) {
+        edgeSet.add(key);
+        degree[i]++;
+        degree[j]++;
+      }
+    }
+  });
+
+  const E = edgeSet.size;
+  const degArr = Array.from(degree);
+  const avgDegree = (2 * E) / N;
+  const density   = (2 * E) / (N * (N - 1));
+
+  // Max degree & hub
+  let maxDeg = 0, maxIdx = 0;
+  for (let i = 0; i < N; i++) if (degree[i] > maxDeg) { maxDeg = degree[i]; maxIdx = i; }
+
+  // Isolated nodes
+  const isolated = degArr.filter(d => d === 0).length;
+
+  // Reciprocity (fraction of directed edges that are mutual)
+  let mutual = 0;
+  for (const e of directedSet) {
+    const [a, b] = e.split("→");
+    if (directedSet.has(`${b}→${a}`)) mutual++;
+  }
+  const reciprocity = directedSet.size > 0 ? mutual / directedSet.size : 0;
+
+  // Gini coefficient of degree distribution
+  const sorted = [...degArr].sort((a, b) => a - b);
+  const totalDeg = sorted.reduce((s, d) => s + d, 0);
+  let giniNum = 0;
+  for (let i = 0; i < N; i++) giniNum += (2 * (i + 1) - N - 1) * sorted[i];
+  const gini = totalDeg > 0 ? giniNum / (N * totalDeg) : 0;
+
+  // Shannon entropy of degree distribution
+  const degCount = new Map<number, number>();
+  for (const d of degArr) degCount.set(d, (degCount.get(d) ?? 0) + 1);
+  let entropy = 0;
+  for (const cnt of degCount.values()) {
+    const p = cnt / N;
+    entropy -= p * Math.log2(p);
+  }
+  const maxEntropy = Math.log2(N);
+
+  // Connected components (BFS)
+  const adj: number[][] = Array.from({ length: N }, () => []);
+  for (const key of edgeSet) {
+    const dash = key.indexOf("-");
+    const a = +key.slice(0, dash), b = +key.slice(dash + 1);
+    adj[a].push(b); adj[b].push(a);
+  }
+  const visited = new Uint8Array(N);
+  let components = 0;
+  const compSizes: number[] = [];
+  for (let s = 0; s < N; s++) {
+    if (visited[s]) continue;
+    components++;
+    const q = [s]; visited[s] = 1; let size = 0, head = 0;
+    while (head < q.length) {
+      const n = q[head++]; size++;
+      for (const nb of adj[n]) if (!visited[nb]) { visited[nb] = 1; q.push(nb); }
+    }
+    compSizes.push(size);
+  }
+  const largestComponent = Math.max(...compSizes);
+
+  // Average local clustering coefficient
+  let ccSum = 0, ccCount = 0;
+  for (let i = 0; i < N; i++) {
+    const d = adj[i].length;
+    if (d < 2) continue;
+    const nbSet = new Set(adj[i]);
+    let links = 0;
+    for (const u of adj[i]) for (const v of adj[u]) if (nbSet.has(v)) links++;
+    ccSum += links / (d * (d - 1));
+    ccCount++;
+  }
+  const clustering = ccCount > 0 ? ccSum / ccCount : 0;
+
+  // Degree histogram (log-binned for power-law inspection)
+  const bins = 8;
+  const hist = new Array(bins).fill(0);
+  const maxD = maxDeg || 1;
+  for (const d of degArr) {
+    if (d === 0) continue;
+    const bin = Math.min(bins - 1, Math.floor((d / maxD) * bins));
+    hist[bin]++;
+  }
+
+  return {
+    N, E, avgDegree, density, maxDeg, maxHub: concepts[maxIdx].title,
+    isolated, reciprocity, gini, entropy, maxEntropy,
+    components, largestComponent, clustering, hist, maxD,
+  };
 }
 
 export default function AdminPage() {
@@ -327,6 +446,8 @@ export default function AdminPage() {
     .sort((a, b) => b.relatedTitles.length - a.relatedTitles.length)
     .slice(0, 5);
 
+  const graphStats = useMemo(() => computeGraphStats(concepts), [concepts]);
+
   if (!mounted) return null;
 
   // ─── Password gate ──────────────────────────────────────────────────────────
@@ -463,6 +584,66 @@ export default function AdminPage() {
                   </div>
                 ))}
               </div>
+
+              {graphStats && (
+                <>
+                  {/* Network topology */}
+                  <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
+                    <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Network topology</h3>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                      {[
+                        { label: "Edges", value: graphStats.E.toLocaleString() },
+                        { label: "Avg degree", value: graphStats.avgDegree.toFixed(1) },
+                        { label: "Density", value: `${(graphStats.density * 100).toFixed(3)}%` },
+                        { label: "Max degree", value: `${graphStats.maxDeg} (${graphStats.maxHub})`, mono: false },
+                        { label: "Isolated nodes", value: graphStats.isolated },
+                        { label: "Reciprocity", value: `${(graphStats.reciprocity * 100).toFixed(1)}%` },
+                        { label: "Components", value: graphStats.components },
+                        { label: "Largest component", value: `${graphStats.largestComponent} nodes` },
+                        { label: "Avg clustering", value: graphStats.clustering.toFixed(3) },
+                        { label: "Gini coefficient", value: graphStats.gini.toFixed(3) },
+                      ].map(({ label, value, mono = true }) => (
+                        <div key={label} className="flex items-baseline justify-between gap-2 border-b border-zinc-50 pb-2">
+                          <span className="text-xs text-zinc-400 shrink-0">{label}</span>
+                          <span className={`text-xs font-medium text-zinc-800 text-right truncate ${mono ? "tabular-nums" : ""}`}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Degree distribution */}
+                  <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Degree distribution</h3>
+                      <span className="text-xs text-zinc-400">
+                        entropy {graphStats.entropy.toFixed(2)} / {graphStats.maxEntropy.toFixed(2)} bits
+                      </span>
+                    </div>
+                    <div className="flex items-end gap-1 h-16">
+                      {graphStats.hist.map((count, i) => {
+                        const pct = graphStats.hist.reduce((a, b) => Math.max(a, b), 0);
+                        const low = Math.round((i / graphStats.hist.length) * graphStats.maxD);
+                        const high = Math.round(((i + 1) / graphStats.hist.length) * graphStats.maxD);
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                            <div
+                              className="w-full bg-zinc-200 group-hover:bg-zinc-400 rounded-sm transition-colors"
+                              style={{ height: pct > 0 ? `${Math.max(4, (count / pct) * 56)}px` : "4px" }}
+                            />
+                            <div className="absolute bottom-full mb-1 hidden group-hover:block bg-zinc-900 text-white text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10">
+                              deg {low}–{high}: {count}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between text-[10px] text-zinc-400">
+                      <span>deg 0</span>
+                      <span>deg {graphStats.maxD}</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {Object.keys(langStats).length > 0 && (
                 <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
