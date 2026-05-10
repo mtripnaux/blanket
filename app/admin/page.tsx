@@ -94,10 +94,12 @@ export default function AdminPage() {
   const [randomRanking, setRandomRanking] = useState(false);
   const [outDegreeWeight, setOutDegreeWeight] = useState(0);
   const [homepagePageSize, setHomepagePageSize] = useState(50);
+  const [graphMaxNodes, setGraphMaxNodes] = useState<number | null>(1000);
   const [randomRankingDraft, setRandomRankingDraft] = useState(false);
   const [inDegreeWeightDraft, setInDegreeWeightDraft] = useState("0");
   const [outDegreeWeightDraft, setOutDegreeWeightDraft] = useState("0");
   const [homepagePageSizeDraft, setHomepagePageSizeDraft] = useState("50");
+  const [graphMaxNodesDraft, setGraphMaxNodesDraft] = useState<number | null>(1000);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsSuccess, setSettingsSuccess] = useState("");
@@ -136,6 +138,9 @@ export default function AdminPage() {
       setOutDegreeWeightDraft((data.outDegreeWeight ?? 0).toString());
       setHomepagePageSize(data.homepagePageSize ?? 50);
       setHomepagePageSizeDraft((data.homepagePageSize ?? 50).toString());
+      const gmn = "graphMaxNodes" in data ? data.graphMaxNodes : 1000;
+      setGraphMaxNodes(gmn);
+      setGraphMaxNodesDraft(gmn);
     } catch {
       // Use defaults
     }
@@ -294,11 +299,12 @@ export default function AdminPage() {
       const finalInDegree = parseFloat(inDegreeWeightDraft) || 0;
       const finalOutDegree = parseFloat(outDegreeWeightDraft) || 0;
       const finalPageSize = Math.max(1, parseInt(homepagePageSizeDraft, 10) || 50);
+      const finalGraphMaxNodes = graphMaxNodesDraft === null ? null : Math.max(1, graphMaxNodesDraft);
 
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ randomRanking: randomRankingDraft, inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree, homepagePageSize: finalPageSize }),
+        body: JSON.stringify({ randomRanking: randomRankingDraft, inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree, homepagePageSize: finalPageSize, graphMaxNodes: finalGraphMaxNodes }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -313,6 +319,9 @@ export default function AdminPage() {
       setOutDegreeWeightDraft(data.outDegreeWeight.toString());
       setHomepagePageSize(data.homepagePageSize ?? 50);
       setHomepagePageSizeDraft((data.homepagePageSize ?? 50).toString());
+      const gmn = "graphMaxNodes" in data ? data.graphMaxNodes : 1000;
+      setGraphMaxNodes(gmn);
+      setGraphMaxNodesDraft(gmn);
       setSettingsSuccess("Settings saved");
       setTimeout(() => setSettingsSuccess(""), 3000);
     } catch {
@@ -912,14 +921,18 @@ export default function AdminPage() {
                   {concepts.reduce((s, c) => s + c.relatedTitles.length, 0) >> 1} edges
                 </span>
               </div>
-              {concepts.length === 0 ? (
+              {loading ? (
+                <div className="flex-1 flex items-center justify-center text-zinc-400">
+                  <Loader2 className="size-5 animate-spin" />
+                </div>
+              ) : concepts.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center">
                   <Network className="size-10 text-zinc-200 mb-4" />
                   <p className="text-sm text-zinc-400">No concepts yet — add some first</p>
                 </div>
               ) : (
                 <div className="flex-1 rounded-xl border border-zinc-200 overflow-hidden bg-white min-h-0">
-                  <ConceptGraphExplorer concepts={concepts} />
+                  <ConceptGraphExplorer concepts={concepts} maxNodes={graphMaxNodes} />
                 </div>
               )}
             </div>
@@ -1023,6 +1036,32 @@ export default function AdminPage() {
                         className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-24 outline-none focus:border-zinc-400 focus:bg-white transition-colors"
                       />
                       <span className="text-xs text-zinc-400">concepts shown initially, then load more</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-zinc-900">
+                      Graph max nodes
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={graphMaxNodesDraft ?? ""}
+                        disabled={graphMaxNodesDraft === null}
+                        onChange={(e) => setGraphMaxNodesDraft(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-24 outline-none focus:border-zinc-400 focus:bg-white transition-colors disabled:opacity-40"
+                      />
+                      <label className="flex items-center gap-2 text-xs text-zinc-500 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={graphMaxNodesDraft === null}
+                          onChange={(e) => setGraphMaxNodesDraft(e.target.checked ? null : (graphMaxNodes ?? 1000))}
+                          className="size-3.5 rounded border-zinc-300"
+                        />
+                        No limit
+                      </label>
                     </div>
                   </div>
 
