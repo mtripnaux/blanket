@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Loader2, BookOpen } from "lucide-react";
-import ConceptGraph from "@/components/ConceptGraph";
+import { Search, Loader2, BookOpen, ChevronDown } from "lucide-react";
 import type { Concept } from "@/lib/store";
+
+const DEFAULT_PAGE_SIZE = 50;
 
 export default function Home() {
   const router = useRouter();
@@ -14,51 +15,52 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [displayCount, setDisplayCount] = useState(DEFAULT_PAGE_SIZE);
 
-  // Initial load: fetch all concepts once and cache locally for fast client-side filtering
+  // Fetch settings then concepts
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
       try {
-        const all = await fetch("/api/concepts").then((r) => r.json());
+        const [settingsRes, conceptsRes] = await Promise.all([
+          fetch("/api/admin/settings").then((r) => r.json()).catch(() => ({})),
+          fetch("/api/concepts").then((r) => r.json()),
+        ]);
         if (!mounted) return;
-        setAllConcepts(all);
-        setConcepts(all);
+        const size = settingsRes?.homepagePageSize ?? DEFAULT_PAGE_SIZE;
+        setPageSize(size);
+        setDisplayCount(size);
+        setAllConcepts(conceptsRes);
+        setConcepts(conceptsRes);
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+          setInitialized(true);
+        }
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
-  // Debounce user input to avoid work on every keystroke
+  // Debounce user input
   useEffect(() => {
     const t = setTimeout(() => setQuery(queryDraft), 300);
     return () => clearTimeout(t);
   }, [queryDraft]);
 
-  // Filter client-side from cached `allConcepts` when the debounced `query` changes
+  // Build Fuse index once corpus is loaded
   const fuseRef = useRef<any | null>(null);
   const MAX_RESULTS = 200;
 
-  // Build Fuse index once whenever the corpus changes. Load Fuse dynamically
-  // so the module is only required in the browser (avoids prerender errors).
   useEffect(() => {
-    if (!allConcepts || allConcepts.length === 0) {
-      fuseRef.current = null;
-      return;
-    }
+    if (!allConcepts || allConcepts.length === 0) { fuseRef.current = null; return; }
     let mounted = true;
     (async () => {
       try {
-        if (typeof window === "undefined") {
-          // Do not attempt to import on server
-          fuseRef.current = null;
-          return;
-        }
+        if (typeof window === "undefined") { fuseRef.current = null; return; }
         const mod = await import("fuse.js");
         if (!mounted) return;
         const F = (mod && (mod as any).default) || mod;
@@ -68,15 +70,12 @@ export default function Home() {
           ignoreLocation: true,
           includeScore: true,
         });
-      } catch (err) {
-        fuseRef.current = null;
-      }
+      } catch { fuseRef.current = null; }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [allConcepts]);
 
+  // Filter client-side from cached allConcepts
   useEffect(() => {
     if (!query.trim()) {
       setConcepts(allConcepts);
@@ -84,7 +83,6 @@ export default function Home() {
       return;
     }
 
-    // Very short queries: do a fast substring search without fuzzy work
     if (query.length < 2) {
       const lower = query.toLowerCase();
       const filtered = allConcepts.filter((c) => c.title.toLowerCase().includes(lower));
@@ -96,32 +94,39 @@ export default function Home() {
     setLoading(true);
     try {
       if (fuseRef.current) {
-        // Use Fuse's limit option to avoid creating huge result arrays
         const results = fuseRef.current.search(query, { limit: MAX_RESULTS });
-        const mapped = (results as any[]).map((r: any) => r.item as Concept);
-        setConcepts(mapped);
+        setConcepts((results as any[]).map((r: any) => r.item as Concept));
       } else {
         const lower = query.toLowerCase();
-        const filtered = allConcepts.filter(
-          (c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower)
+        setConcepts(
+          allConcepts
+            .filter((c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower))
+            .slice(0, MAX_RESULTS)
         );
-        setConcepts(filtered.slice(0, MAX_RESULTS));
       }
-    } catch (err) {
+    } catch {
       const lower = query.toLowerCase();
-      const filtered = allConcepts.filter(
-        (c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower)
+      setConcepts(
+        allConcepts
+          .filter((c) => c.title.toLowerCase().includes(lower) || c.definition.toLowerCase().includes(lower))
+          .slice(0, MAX_RESULTS)
       );
-      setConcepts(filtered.slice(0, MAX_RESULTS));
     } finally {
       setLoading(false);
     }
   }, [query, allConcepts]);
 
+  // When query changes, reset displayCount
+  useEffect(() => {
+    if (!query.trim()) setDisplayCount(pageSize);
+  }, [query, pageSize]);
+
+  const isFiltering = query.trim().length > 0;
+  const visibleConcepts = isFiltering ? concepts : concepts.slice(0, displayCount);
+  const hasMore = !isFiltering && concepts.length > displayCount;
+
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* <ConceptGraph concepts={allConcepts} /> */}
-
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-400" />
         <input
@@ -134,7 +139,7 @@ export default function Home() {
       </div>
 
       <div>
-        {loading ? (
+        {!initialized || loading ? (
           <div className="flex items-center justify-center py-16 text-zinc-400">
             <Loader2 className="size-5 animate-spin" />
           </div>
@@ -172,7 +177,7 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {concepts.map((concept) => (
+                {visibleConcepts.map((concept) => (
                   <tr
                     key={concept.id}
                     onClick={() => router.push(`/concept/${concept.slug}`)}
@@ -189,7 +194,7 @@ export default function Home() {
                         )}
                         <div className="min-w-0">
                           <div className="font-medium text-zinc-900 truncate">{concept.title}</div>
-                          <div className="text-xs text-zinc-400 truncate max-w-xs">
+                          <div className={(concept.thumbnail ? 'max-w-xxs' : 'max-w-xs') + `text-xs text-zinc-400 truncate`}>
                             {concept.definition.slice(0, 90)}{concept.definition.length > 90 ? "…" : ""}
                           </div>
                         </div>
@@ -207,14 +212,25 @@ export default function Home() {
                 ))}
               </tbody>
             </table>
-            <div className="px-4 py-3 border-t border-zinc-100 text-xs text-zinc-400">
-              {concepts.length} concept{concepts.length > 1 ? "s" : ""}
-              {query ? ` for "${query}"` : ""}
+            <div className="px-4 py-3 border-t border-zinc-100 flex items-center justify-between">
+              <span className="text-xs text-zinc-400">
+                {isFiltering
+                  ? `${concepts.length} result${concepts.length !== 1 ? "s" : ""} for "${query}"`
+                  : `${visibleConcepts.length} of ${concepts.length} concept${concepts.length !== 1 ? "s" : ""}`}
+              </span>
+              {hasMore && (
+                <button
+                  onClick={() => setDisplayCount((n) => n + pageSize)}
+                  className="flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+                >
+                  <ChevronDown className="size-3.5" />
+                  Load {Math.min(pageSize, concepts.length - displayCount)} more
+                </button>
+              )}
             </div>
           </div>
         )}
       </div>
-
     </div>
   );
 }

@@ -93,9 +93,11 @@ export default function AdminPage() {
   const [inDegreeWeight, setInDegreeWeight] = useState(0);
   const [randomRanking, setRandomRanking] = useState(false);
   const [outDegreeWeight, setOutDegreeWeight] = useState(0);
+  const [homepagePageSize, setHomepagePageSize] = useState(50);
   const [randomRankingDraft, setRandomRankingDraft] = useState(false);
   const [inDegreeWeightDraft, setInDegreeWeightDraft] = useState("0");
   const [outDegreeWeightDraft, setOutDegreeWeightDraft] = useState("0");
+  const [homepagePageSizeDraft, setHomepagePageSizeDraft] = useState("50");
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsSuccess, setSettingsSuccess] = useState("");
@@ -132,6 +134,8 @@ export default function AdminPage() {
       setInDegreeWeightDraft((data.inDegreeWeight ?? 0).toString());
       setOutDegreeWeight(data.outDegreeWeight ?? 0);
       setOutDegreeWeightDraft((data.outDegreeWeight ?? 0).toString());
+      setHomepagePageSize(data.homepagePageSize ?? 50);
+      setHomepagePageSizeDraft((data.homepagePageSize ?? 50).toString());
     } catch {
       // Use defaults
     }
@@ -207,11 +211,13 @@ export default function AdminPage() {
     let firstSuccessTitle: string | undefined;
     let firstErrorMessage: string | undefined;
 
-    setBulkResults(lines.map((u) => ({ url: u, status: "pending" })));
+    const finalStatuses: BulkResult[] = lines.map((u) => ({ url: u, status: "pending" }));
+    setBulkResults(finalStatuses);
 
     for (let i = 0; i < lines.length; i++) {
       const wikiUrl = lines[i];
       const result = await importUrl(wikiUrl);
+      const status = result.ok ? "success" : result.error === "Already in glossary" ? "duplicate" : "error";
 
       if (result.ok) {
         successCount++;
@@ -223,16 +229,8 @@ export default function AdminPage() {
         if (!firstErrorMessage) firstErrorMessage = result.error;
       }
 
-      setBulkResults((prev) => {
-        const next = [...prev];
-        next[i] = {
-          url: wikiUrl,
-          status: result.ok ? "success" : result.error === "Already in glossary" ? "duplicate" : "error",
-          message: result.error,
-          title: result.title,
-        };
-        return next;
-      });
+      finalStatuses[i] = { url: wikiUrl, status, message: result.error, title: result.title };
+      setBulkResults([...finalStatuses]);
     }
 
     if (lines.length === 1) {
@@ -247,7 +245,9 @@ export default function AdminPage() {
       );
     }
 
-    setImportUrls("");
+    // Keep only failed URLs in the textarea so the user can retry them
+    const failedUrls = lines.filter((_, i) => finalStatuses[i]?.status === "error");
+    setImportUrls(failedUrls.join("\n"));
     setTimeout(() => setAddSuccess(""), 4000);
     setAdding(false);
   }
@@ -293,11 +293,12 @@ export default function AdminPage() {
     try {
       const finalInDegree = parseFloat(inDegreeWeightDraft) || 0;
       const finalOutDegree = parseFloat(outDegreeWeightDraft) || 0;
-      
+      const finalPageSize = Math.max(1, parseInt(homepagePageSizeDraft, 10) || 50);
+
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ randomRanking: randomRankingDraft, inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree }),
+        body: JSON.stringify({ randomRanking: randomRankingDraft, inDegreeWeight: finalInDegree, outDegreeWeight: finalOutDegree, homepagePageSize: finalPageSize }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -310,6 +311,8 @@ export default function AdminPage() {
       setInDegreeWeightDraft(data.inDegreeWeight.toString());
       setOutDegreeWeight(data.outDegreeWeight);
       setOutDegreeWeightDraft(data.outDegreeWeight.toString());
+      setHomepagePageSize(data.homepagePageSize ?? 50);
+      setHomepagePageSizeDraft((data.homepagePageSize ?? 50).toString());
       setSettingsSuccess("Settings saved");
       setTimeout(() => setSettingsSuccess(""), 3000);
     } catch {
@@ -565,7 +568,8 @@ export default function AdminPage() {
                       "https://en.wikipedia.org/wiki/Photosynthesis\nhttps://en.wikipedia.org/wiki/Entropy\nhttps://fr.wikipedia.org/wiki/Complexité"
                     }
                     rows={4}
-                    className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400 font-mono resize-none leading-relaxed"
+                    disabled={adding}
+                    className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:bg-white transition-colors placeholder:text-zinc-400 font-mono resize-none leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <div className="flex items-center gap-3">
                     <button
@@ -1002,6 +1006,23 @@ export default function AdminPage() {
                           className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-20 outline-none focus:border-zinc-400 focus:bg-white transition-colors disabled:opacity-40"
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-zinc-900">
+                      Homepage page size
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={homepagePageSizeDraft}
+                        onChange={(e) => setHomepagePageSizeDraft(e.target.value)}
+                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm w-24 outline-none focus:border-zinc-400 focus:bg-white transition-colors"
+                      />
+                      <span className="text-xs text-zinc-400">concepts shown initially, then load more</span>
                     </div>
                   </div>
 

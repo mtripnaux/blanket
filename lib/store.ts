@@ -5,6 +5,7 @@ export type Settings = {
   inDegreeWeight: number;
   outDegreeWeight: number;
   randomRanking: boolean;
+  homepagePageSize: number;
 };
 
 export type Concept = {
@@ -23,12 +24,14 @@ type Store = { concepts: Concept[]; settings?: Settings };
 
 const DATA_PATH = path.join(process.cwd(), "data", "glossary.json");
 
+const DEFAULT_SETTINGS: Settings = { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0, homepagePageSize: 50 };
+
 function read(): Store {
   try {
     const raw = fs.readFileSync(DATA_PATH, "utf-8");
     return JSON.parse(raw);
   } catch {
-    return { concepts: [], settings: { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 } };
+    return { concepts: [], settings: { ...DEFAULT_SETTINGS } };
   }
 }
 
@@ -103,7 +106,7 @@ function buildFrontierScores(
 export function getConcepts(): Concept[] {
   const store = read();
   const concepts = store.concepts;
-  const settings = store.settings ?? { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 };
+  const settings: Settings = { ...DEFAULT_SETTINGS, ...(store.settings ?? {}) };
   if (settings.randomRanking) {
     return shuffleConcepts(concepts);
   }
@@ -117,12 +120,12 @@ export function getConcepts(): Concept[] {
 
 export function getSettings(): Settings {
   const store = read();
-  return store.settings ?? { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 };
+  return { ...DEFAULT_SETTINGS, ...(store.settings ?? {}) };
 }
 
 export function updateSettings(nextSettings: Partial<Settings>): Settings {
   const store = read();
-  const current = store.settings ?? { randomRanking: false, inDegreeWeight: 0, outDegreeWeight: 0 };
+  const current: Settings = { ...DEFAULT_SETTINGS, ...(store.settings ?? {}) };
   const updated: Settings = { ...current, ...nextSettings };
   store.settings = updated;
   write(store);

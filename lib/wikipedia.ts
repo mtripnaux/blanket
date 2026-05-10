@@ -94,11 +94,16 @@ async function fetchRelatedTitles(lang: string, title: string): Promise<string[]
     };
     if (plcontinue) params.plcontinue = plcontinue;
 
-    const res = await fetch(
-      `https://${lang}.wikipedia.org/w/api.php?` + new URLSearchParams(params),
-      { headers: { "User-Agent": "Blanket-Glossary/1.0" } }
-    );
-    if (!res.ok) break;
+    let res: Response | undefined;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      res = await fetch(
+        `https://${lang}.wikipedia.org/w/api.php?` + new URLSearchParams(params),
+        { headers: { "User-Agent": "Blanket-Glossary/1.0" } }
+      );
+      if (res.ok || (res.status !== 429 && res.status < 500)) break;
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+    if (!res || !res.ok) break;
 
     const data = await res.json();
     const pages = Object.values(data.query?.pages || {}) as any[];
