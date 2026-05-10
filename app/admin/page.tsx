@@ -310,7 +310,7 @@ export default function AdminPage() {
       const data = await res.json();
       if (res.status === 409) return { ok: false, error: "Already in glossary" };
       if (!res.ok) return { ok: false, error: data.error || "Unknown error" };
-      await fetchConcepts();
+      setConcepts((prev) => [...prev, data]);
       return { ok: true, title: data.title };
     } catch {
       return { ok: false, error: "Could not reach the server" };
@@ -349,8 +349,8 @@ export default function AdminPage() {
   async function handleDelete(id: string) {
     setDeletingId(id);
     try {
-      await fetch(`/api/concepts/${id}`, { method: "DELETE" });
-      await fetchConcepts();
+      const res = await fetch(`/api/concepts/${id}`, { method: "DELETE" });
+      if (res.ok) setConcepts((prev) => prev.filter((c) => c.id !== id));
     } finally {
       setDeletingId(null);
     }
@@ -365,7 +365,7 @@ export default function AdminPage() {
         window.alert(data.error || `Could not refresh ${title}`);
         return;
       }
-      await fetchConcepts();
+      setConcepts((prev) => prev.map((c) => c.id === id ? data : c));
     } finally {
       setRefreshingId(null);
     }
