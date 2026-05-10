@@ -72,9 +72,6 @@ export default function AdminPage() {
   // Add form
   const [importUrls, setImportUrls] = useState("");
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState("");
-  const [addSuccess, setAddSuccess] = useState("");
-  const [importingSlug, setImportingSlug] = useState<string | null>(null);
   const [frontierLimit, setFrontierLimit] = useState(20);
   const [langFilter, setLangFilter] = useState("all");
   const [minCount, setMinCount] = useState(1);
@@ -207,14 +204,6 @@ export default function AdminPage() {
     if (!lines.length) return;
 
     setAdding(true);
-    setAddError("");
-    setAddSuccess("");
-
-    let successCount = 0;
-    let duplicateCount = 0;
-    let errorCount = 0;
-    let firstSuccessTitle: string | undefined;
-    let firstErrorMessage: string | undefined;
 
     const finalStatuses: BulkResult[] = lines.map((u) => ({ url: u, status: "pending" }));
     setBulkResults(finalStatuses);
@@ -223,46 +212,19 @@ export default function AdminPage() {
       const wikiUrl = lines[i];
       const result = await importUrl(wikiUrl);
       const status = result.ok ? "success" : result.error === "Already in glossary" ? "duplicate" : "error";
-
-      if (result.ok) {
-        successCount++;
-        if (!firstSuccessTitle) firstSuccessTitle = result.title;
-      } else if (result.error === "Already in glossary") {
-        duplicateCount++;
-      } else {
-        errorCount++;
-        if (!firstErrorMessage) firstErrorMessage = result.error;
-      }
-
       finalStatuses[i] = { url: wikiUrl, status, message: result.error, title: result.title };
       setBulkResults([...finalStatuses]);
-    }
-
-    if (lines.length === 1) {
-      if (successCount === 1) {
-        setAddSuccess(`"${firstSuccessTitle}" added successfully`);
-      } else {
-        setAddError(firstErrorMessage || "Error");
-      }
-    } else {
-      setAddSuccess(
-        `${successCount} imported${duplicateCount ? ` · ${duplicateCount} duplicates` : ""}${errorCount ? ` · ${errorCount} errors` : ""}`
-      );
     }
 
     // Keep only failed URLs in the textarea so the user can retry them
     const failedUrls = lines.filter((_, i) => finalStatuses[i]?.status === "error");
     setImportUrls(failedUrls.join("\n"));
-    setTimeout(() => setAddSuccess(""), 4000);
     setAdding(false);
   }
 
-  async function handleSuggestion(s: Suggestion) {
+  function handleSuggestion(s: Suggestion) {
     const wikiUrl = `https://${s.lang}.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`;
-    const key = `${s.lang}::${s.title}`;
-    setImportingSlug(key);
-    await importUrl(wikiUrl);
-    setImportingSlug(null);
+    setImportUrls((prev) => (prev.trim() ? prev.trimEnd() + "\n" + wikiUrl : wikiUrl));
   }
 
   async function handleDelete(id: string) {
@@ -572,7 +534,7 @@ export default function AdminPage() {
                 <form onSubmit={handleImport} className="space-y-2">
                   <textarea
                     value={importUrls}
-                    onChange={(e) => { setImportUrls(e.target.value); setAddError(""); setAddSuccess(""); }}
+                    onChange={(e) => setImportUrls(e.target.value)}
                     placeholder={
                       "https://en.wikipedia.org/wiki/Photosynthesis\nhttps://en.wikipedia.org/wiki/Entropy\nhttps://fr.wikipedia.org/wiki/Complexité"
                     }
@@ -604,16 +566,6 @@ export default function AdminPage() {
                     )}
                   </div>
                 </form>
-                {addError && (
-                  <p className="flex items-center gap-1.5 text-xs text-red-500">
-                    <X className="size-3.5 shrink-0" /> {addError}
-                  </p>
-                )}
-                {addSuccess && (
-                  <p className="flex items-center gap-1.5 text-xs text-emerald-600">
-                    <Check className="size-3.5 shrink-0" /> {addSuccess}
-                  </p>
-                )}
                 {bulkResults.length > 0 && (
                   <ul className="space-y-1.5 border-t border-zinc-100 pt-4">
                     {bulkResults.map((r, i) => (
@@ -715,29 +667,16 @@ export default function AdminPage() {
                     <div className="flex flex-wrap gap-1.5">
                       {visibleSuggestions.map((s) => {
                         const key = `${s.lang}::${s.title}`;
-                        const isImporting = importingSlug === key;
                         return (
                           <button
                             key={key}
                             type="button"
                             onClick={() => handleSuggestion(s)}
-                            disabled={importingSlug !== null || adding}
-                            className={cn(
-                              "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-default",
-                              isImporting
-                                ? "border-zinc-200 bg-white text-zinc-400"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-900 hover:text-zinc-900"
-                            )}
+                            className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-900 hover:text-zinc-900 transition-colors"
                           >
-                            {isImporting && <Loader2 className="size-3 animate-spin text-zinc-400" />}
                             {s.title}
                             {s.count > 1 && (
-                              <span
-                                className={cn(
-                                  "text-[10px] font-medium rounded-full px-1 tabular-nums",
-                                  isImporting ? "text-zinc-300" : "bg-zinc-100 text-zinc-400"
-                                )}
-                              >
+                              <span className="text-[10px] font-medium rounded-full px-1 tabular-nums bg-zinc-100 text-zinc-400">
                                 {s.count}
                               </span>
                             )}
