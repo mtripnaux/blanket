@@ -2,3 +2,5 @@
 .next/*
 node_modules/*
 NEXT.md*
+.env.local
+data/*

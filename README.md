@@ -13,10 +13,6 @@ npm install
 
 **2. Configure**
 
-```bash
-cp .env.local.example .env.local
-```
-
 Edit `.env.local`:
 
 ```
