@@ -103,10 +103,10 @@ function computeGraphStats(concepts: Concept[]) {
   const isolated = degArr.filter((d) => d === 0).length;
 
   let mutual = 0;
-  for (const e of directedSet) {
+  Array.from(directedSet).forEach((e) => {
     const [a, b] = e.split("→");
     if (directedSet.has(`${b}→${a}`)) mutual++;
-  }
+  });
   const reciprocity = directedSet.size > 0 ? mutual / directedSet.size : 0;
 
   const sorted = [...degArr].sort((a, b) => a - b);
@@ -118,15 +118,15 @@ function computeGraphStats(concepts: Concept[]) {
   const degCount = new Map<number, number>();
   for (const d of degArr) degCount.set(d, (degCount.get(d) ?? 0) + 1);
   let entropy = 0;
-  for (const cnt of degCount.values()) { const p = cnt / N; entropy -= p * Math.log2(p); }
+  Array.from(degCount.values()).forEach((cnt) => { const p = cnt / N; entropy -= p * Math.log2(p); });
   const maxEntropy = Math.log2(N);
 
   const adj: number[][] = Array.from({ length: N }, () => []);
-  for (const key of edgeSet) {
+  Array.from(edgeSet).forEach((key) => {
     const dash = key.indexOf("-");
     const a = +key.slice(0, dash), b = +key.slice(dash + 1);
     adj[a].push(b); adj[b].push(a);
-  }
+  });
   const visited = new Uint8Array(N);
   let components = 0;
   const compSizes: number[] = [];

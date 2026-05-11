@@ -1,6 +1,4 @@
 .claude/*
 .next/*
 node_modules/*
-data/*
-.env*
 NEXT.md*
