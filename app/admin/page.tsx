@@ -14,8 +14,8 @@ import type { Concept } from "@/lib/store";
 import ConceptGraphExplorer from "@/components/ConceptGraphExplorer";
 
 type Section = "overview" | "add" | "manage" | "graph" | "settings";
-type Suggestion = { title: string; lang: string; count: number };
-type SortOrder = "connections" | "alpha";
+type Suggestion = { title: string; lang: string; count: number; score: number; recentCount: number };
+type SortOrder = "connections" | "alpha" | "recent";
 type ManageSort = "date-desc" | "date-asc" | "title" | "lang" | "links-desc" | "links-asc";
 type BulkResult = {
   url: string;
@@ -55,17 +55,26 @@ function relativeDate(iso: string): string {
 function computeSuggestions(
   concepts: Concept[],
   langFilter: string,
-  minCount: number
+  minCount: number,
+  recentTitles: Set<string> = new Set()
 ): Suggestion[] {
   const existing = new Set(concepts.map((c) => c.title.toLowerCase()));
   const counts = new Map<string, Suggestion>();
   for (const concept of concepts) {
+    const isRecent = recentTitles.has(concept.title.toLowerCase());
     for (const title of concept.relatedTitles) {
       if (existing.has(title.toLowerCase())) continue;
       if (langFilter !== "all" && concept.lang !== langFilter) continue;
       const key = `${concept.lang}::${title.toLowerCase()}`;
+      const weight = 1 + Math.log1p(concept.relatedTitles.length / 100);
       const entry = counts.get(key);
-      if (entry) { entry.count++; } else { counts.set(key, { title, lang: concept.lang, count: 1 }); }
+      if (entry) {
+        entry.count++;
+        entry.score += weight;
+        if (isRecent) entry.recentCount++;
+      } else {
+        counts.set(key, { title, lang: concept.lang, count: 1, score: weight, recentCount: isRecent ? 1 : 0 });
+      }
     }
   }
   return Array.from(counts.values()).filter((s) => s.count >= minCount);
@@ -190,6 +199,15 @@ export default function AdminPage() {
   const [langFilter, setLangFilter] = useState("all");
   const [minCount, setMinCount] = useState(1);
   const [sortOrder, setSortOrder] = useState<SortOrder>("connections");
+  const [frontierSearch, setFrontierSearch] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [dismissed, setDismissed] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem("frontier_dismissed");
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+  });
 
   // Manage
   const [manageSearch, setManageSearch] = useState("");
@@ -331,9 +349,33 @@ export default function AdminPage() {
     setAdding(false);
   }
 
-  function handleSuggestion(s: Suggestion) {
-    const url = `https://${s.lang}.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`;
-    setImportUrls((prev) => (prev.trim() ? prev.trimEnd() + "\n" + url : url));
+  function dismissSuggestion(key: string) {
+    const next = new Set(dismissed).add(key);
+    setDismissed(next);
+    try { localStorage.setItem("frontier_dismissed", JSON.stringify(Array.from(next))); } catch {}
+    setSelectedKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+  }
+
+  function clearDismissed() {
+    setDismissed(new Set());
+    try { localStorage.removeItem("frontier_dismissed"); } catch {}
+  }
+
+  function toggleSelect(key: string) {
+    setSelectedKeys((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key); else n.add(key);
+      return n;
+    });
+  }
+
+  function handleBatchAdd() {
+    const urls = Array.from(selectedKeys).flatMap((key) => {
+      const s = sortedSuggestions.find((s) => `${s.lang}::${s.title}` === key);
+      return s ? [`https://${s.lang}.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`] : [];
+    });
+    setImportUrls((prev) => (prev.trim() ? prev.trimEnd() + "\n" + urls.join("\n") : urls.join("\n")));
+    setSelectedKeys(new Set());
   }
 
   async function handleDelete(id: string) {
@@ -410,13 +452,38 @@ export default function AdminPage() {
   // ── Derived state (memoized) ─────────────────────────────────────────────────
   const langs = useMemo(() => Array.from(new Set(concepts.map((c) => c.lang))).sort(), [concepts]);
 
-  const rawSuggestions = useMemo(() => computeSuggestions(concepts, langFilter, minCount), [concepts, langFilter, minCount]);
+  const recentTitles = useMemo(() => {
+    const sorted = [...concepts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return new Set(sorted.slice(0, 20).map((c) => c.title.toLowerCase()));
+  }, [concepts]);
+
+  const queuedTitles = useMemo(() => new Set(
+    importUrls.split("\n").map((l) => {
+      const part = l.trim().split("/wiki/")[1];
+      if (!part) return "";
+      return decodeURIComponent(part).replace(/_/g, " ").toLowerCase();
+    }).filter(Boolean)
+  ), [importUrls]);
+
+  const rawSuggestions = useMemo(() => computeSuggestions(concepts, langFilter, minCount, recentTitles), [concepts, langFilter, minCount, recentTitles]);
   const sortedSuggestions = useMemo(() =>
-    [...rawSuggestions].sort((a, b) => sortOrder === "connections" ? b.count - a.count : a.title.localeCompare(b.title)),
-    [rawSuggestions, sortOrder]
+    [...rawSuggestions]
+      .filter((s) => !dismissed.has(`${s.lang}::${s.title.toLowerCase()}`))
+      .sort((a, b) => {
+        if (sortOrder === "connections") return b.score - a.score;
+        if (sortOrder === "recent") return b.recentCount - a.recentCount || b.score - a.score;
+        return a.title.localeCompare(b.title);
+      }),
+    [rawSuggestions, sortOrder, dismissed]
   );
-  const visibleSuggestions = useMemo(() => sortedSuggestions.slice(0, frontierLimit), [sortedSuggestions, frontierLimit]);
-  const frontierTotal = useMemo(() => computeSuggestions(concepts, "all", 1).length, [concepts]);
+  const filteredSuggestions = useMemo(() =>
+    frontierSearch.trim()
+      ? sortedSuggestions.filter((s) => s.title.toLowerCase().includes(frontierSearch.toLowerCase()))
+      : sortedSuggestions,
+    [sortedSuggestions, frontierSearch]
+  );
+  const visibleSuggestions = useMemo(() => filteredSuggestions.slice(0, frontierLimit), [filteredSuggestions, frontierLimit]);
+  const frontierTotal = useMemo(() => computeSuggestions(concepts, "all", 1, recentTitles).length, [concepts, recentTitles]);
 
   const filteredConcepts = useMemo(() =>
     concepts
@@ -882,44 +949,54 @@ export default function AdminPage() {
               <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
                 <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Frontier Explorer</h3>
-                  <span className="text-[11px] text-zinc-400 tabular-nums">{rawSuggestions.length} suggestions</span>
+                  <div className="flex items-center gap-3">
+                    {dismissed.size > 0 && (
+                      <button type="button" onClick={clearDismissed} className="text-[11px] text-zinc-400 hover:text-zinc-700 transition-colors">
+                        {dismissed.size} hidden · restore
+                      </button>
+                    )}
+                    <span className="text-[11px] text-zinc-400 tabular-nums">{sortedSuggestions.length} suggestions</span>
+                  </div>
                 </div>
                 <div className="p-5 space-y-4">
                   {/* Filters */}
                   <div className="flex flex-wrap gap-2">
-                    {[
-                      {
-                        icon: <Globe className="size-3.5 text-zinc-400 shrink-0" />,
-                        content: (
-                          <select value={langFilter} onChange={(e) => { setLangFilter(e.target.value); setFrontierLimit(20); }} className="outline-none bg-transparent text-zinc-600 cursor-pointer text-xs">
-                            <option value="all">All languages</option>
-                            {langs.map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}
-                          </select>
-                        ),
-                      },
-                      {
-                        icon: <Hash className="size-3.5 text-zinc-400 shrink-0" />,
-                        content: (
-                          <select value={minCount} onChange={(e) => { setMinCount(Number(e.target.value)); setFrontierLimit(20); }} className="outline-none bg-transparent text-zinc-600 cursor-pointer text-xs">
-                            {[1, 2, 3, 5, 10].map((n) => <option key={n} value={n}>Min {n} link{n !== 1 ? "s" : ""}</option>)}
-                          </select>
-                        ),
-                      },
-                      {
-                        icon: <ArrowUpDown className="size-3.5 text-zinc-400 shrink-0" />,
-                        content: (
-                          <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as SortOrder)} className="outline-none bg-transparent text-zinc-600 cursor-pointer text-xs">
-                            <option value="connections">By connections</option>
-                            <option value="alpha">Alphabetical</option>
-                          </select>
-                        ),
-                      },
-                    ].map((f, i) => (
-                      <div key={i} className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 bg-zinc-50">
-                        {f.icon}
-                        {f.content}
-                      </div>
-                    ))}
+                    <div className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 bg-zinc-50 flex-1 min-w-32">
+                      <Search className="size-3.5 text-zinc-400 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="Filter…"
+                        value={frontierSearch}
+                        onChange={(e) => { setFrontierSearch(e.target.value); setFrontierLimit(20); }}
+                        className="outline-none bg-transparent text-zinc-600 text-xs w-full placeholder:text-zinc-400"
+                      />
+                      {frontierSearch && (
+                        <button type="button" onClick={() => setFrontierSearch("")} className="text-zinc-400 hover:text-zinc-700 transition-colors shrink-0">
+                          <X className="size-3" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 bg-zinc-50">
+                      <Globe className="size-3.5 text-zinc-400 shrink-0" />
+                      <select value={langFilter} onChange={(e) => { setLangFilter(e.target.value); setFrontierLimit(20); }} className="outline-none bg-transparent text-zinc-600 cursor-pointer text-xs">
+                        <option value="all">All languages</option>
+                        {langs.map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 bg-zinc-50">
+                      <Hash className="size-3.5 text-zinc-400 shrink-0" />
+                      <select value={minCount} onChange={(e) => { setMinCount(Number(e.target.value)); setFrontierLimit(20); }} className="outline-none bg-transparent text-zinc-600 cursor-pointer text-xs">
+                        {[1, 2, 3, 5, 10].map((n) => <option key={n} value={n}>Min {n} link{n !== 1 ? "s" : ""}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 bg-zinc-50">
+                      <ArrowUpDown className="size-3.5 text-zinc-400 shrink-0" />
+                      <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as SortOrder)} className="outline-none bg-transparent text-zinc-600 cursor-pointer text-xs">
+                        <option value="connections">By connections</option>
+                        <option value="recent">Recently added</option>
+                        <option value="alpha">Alphabetical</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Chips */}
@@ -930,32 +1007,90 @@ export default function AdminPage() {
                   ) : (
                     <div className="space-y-3">
                       <div className="flex flex-wrap gap-1.5">
-                        {visibleSuggestions.map((s) => (
-                          <button
-                            key={`${s.lang}::${s.title}`}
-                            type="button"
-                            onClick={() => handleSuggestion(s)}
-                            className="group flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-900 hover:text-zinc-900 transition-colors"
-                          >
-                            <Plus className="size-2.5 text-zinc-300 group-hover:text-zinc-600 transition-colors shrink-0" />
-                            {s.title}
-                            {s.count > 1 && (
-                              <span className="text-[10px] font-medium rounded-full px-1 tabular-nums bg-zinc-100 text-zinc-400 group-hover:bg-zinc-200">
-                                {s.count}
-                              </span>
-                            )}
-                          </button>
-                        ))}
+                        {visibleSuggestions.map((s) => {
+                          const key = `${s.lang}::${s.title}`;
+                          const isQueued = queuedTitles.has(s.title.toLowerCase());
+                          const isSelected = selectedKeys.has(key);
+                          return (
+                            <div key={key} className="group relative">
+                              <button
+                                type="button"
+                                disabled={isQueued}
+                                onClick={() => { if (!isQueued) toggleSelect(key); }}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-full border py-1 text-xs font-medium transition-colors",
+                                  isQueued
+                                    ? "pl-2.5 pr-3 border-zinc-100 bg-zinc-50 text-zinc-400 cursor-default"
+                                    : isSelected
+                                    ? "pl-2.5 pr-6 border-zinc-900 bg-zinc-900 text-white"
+                                    : "pl-2.5 pr-6 border-zinc-200 bg-white text-zinc-700 hover:border-zinc-900 hover:text-zinc-900"
+                                )}
+                              >
+                                {isQueued
+                                  ? <Check className="size-2.5 text-zinc-400 shrink-0" />
+                                  : isSelected
+                                  ? <Check className="size-2.5 shrink-0" />
+                                  : <Plus className="size-2.5 text-zinc-300 group-hover:text-zinc-600 transition-colors shrink-0" />
+                                }
+                                {s.title}
+                                {s.recentCount > 0 && !isQueued && (
+                                  <span className={cn("size-1.5 rounded-full shrink-0", isSelected ? "bg-amber-300" : "bg-amber-400")} title={`Linked by ${s.recentCount} recently added concept${s.recentCount > 1 ? "s" : ""}`} />
+                                )}
+                                {s.count > 1 && (
+                                  <span className={cn(
+                                    "text-[10px] font-medium rounded-full px-1 tabular-nums",
+                                    isSelected ? "bg-white/20 text-white" : "bg-zinc-100 text-zinc-400 group-hover:bg-zinc-200"
+                                  )}>
+                                    {s.count}
+                                  </span>
+                                )}
+                              </button>
+                              {!isQueued && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); dismissSuggestion(key); }}
+                                  title="Dismiss"
+                                  className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-zinc-700"
+                                >
+                                  <X className="size-2.5" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                      {sortedSuggestions.length > frontierLimit && (
-                        <button
-                          onClick={() => setFrontierLimit((n) => n + 20)}
-                          className="flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-900 transition-colors"
-                        >
-                          <ChevronDown className="size-3.5" />
-                          Load 20 more ({sortedSuggestions.length - frontierLimit} remaining)
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between gap-3 min-h-6">
+                        <div>
+                          {filteredSuggestions.length > frontierLimit && (
+                            <button
+                              onClick={() => setFrontierLimit((n) => n + 20)}
+                              className="flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-900 transition-colors"
+                            >
+                              <ChevronDown className="size-3.5" />
+                              Load 20 more ({filteredSuggestions.length - frontierLimit} remaining)
+                            </button>
+                          )}
+                        </div>
+                        {selectedKeys.size > 0 && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedKeys(new Set())}
+                              className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
+                            >
+                              Clear
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleBatchAdd}
+                              className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 transition-colors"
+                            >
+                              <Upload className="size-3" />
+                              Add {selectedKeys.size} to queue
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
