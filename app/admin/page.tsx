@@ -214,7 +214,6 @@ export default function AdminPage() {
   const [manageSort, setManageSort] = useState<ManageSort>("date-desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [expandedConceptId, setExpandedConceptId] = useState<string | null>(null);
 
   // Settings
@@ -241,7 +240,6 @@ export default function AdminPage() {
   useEffect(() => {
     const next = getSectionFromPathname(pathname);
     setSection((prev) => (prev === next ? prev : next));
-    setConfirmingDeleteId(null);
     setExpandedConceptId(null);
   }, [pathname]);
 
@@ -253,7 +251,6 @@ export default function AdminPage() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       const target = SHORTCUT_MAP[e.key];
       if (target) { e.preventDefault(); router.push(sectionHref(target)); }
-      if (e.key === "Escape") setConfirmingDeleteId(null);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -378,14 +375,14 @@ export default function AdminPage() {
     setSelectedKeys(new Set());
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, title: string) {
+    if (!window.confirm(`Delete "${title}"?`)) return;
     setDeletingId(id);
     try {
       const res = await fetch(`/api/concepts/${id}`, { method: "DELETE" });
       if (res.ok) setConcepts((prev) => prev.filter((c) => c.id !== id));
     } finally {
       setDeletingId(null);
-      setConfirmingDeleteId(null);
     }
   }
 
@@ -1188,7 +1185,6 @@ export default function AdminPage() {
                             onClick={(e) => {
                               if ((e.target as HTMLElement).closest("button, a")) return;
                               setExpandedConceptId(expandedConceptId === c.id ? null : c.id);
-                              setConfirmingDeleteId(null);
                             }}
                           >
                             <td className="px-4 py-3">
@@ -1226,32 +1222,14 @@ export default function AdminPage() {
                                 >
                                   {refreshingId === c.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
                                 </button>
-                                {confirmingDeleteId === c.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => setConfirmingDeleteId(null)}
-                                      className="rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:text-zinc-700 transition-colors"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={() => void handleDelete(c.id)}
-                                      disabled={deletingId === c.id}
-                                      className="rounded px-2 py-0.5 text-[11px] font-medium bg-red-50 text-red-500 hover:bg-red-100 transition-colors disabled:opacity-50"
-                                    >
-                                      {deletingId === c.id ? <Loader2 className="size-3 animate-spin" /> : "Delete"}
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => { setConfirmingDeleteId(c.id); setExpandedConceptId(null); }}
-                                    disabled={deletingId === c.id}
-                                    className="rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-all disabled:opacity-50"
-                                    title={`Delete ${c.title}`}
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => void handleDelete(c.id, c.title)}
+                                  disabled={deletingId === c.id}
+                                  className="rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-all disabled:opacity-50"
+                                  title={`Delete ${c.title}`}
+                                >
+                                  {deletingId === c.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                                </button>
                               </div>
                             </td>
                           </tr>
