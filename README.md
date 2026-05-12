@@ -13,10 +13,9 @@ npm install
 
 **2. Configure**
 
-Edit `.env.local`:
-
 ```
-ADMIN_PASSWORD=your_password
+chmod +x ./setup.sh
+./setup.sh
 ```
 
 **3. Run**
